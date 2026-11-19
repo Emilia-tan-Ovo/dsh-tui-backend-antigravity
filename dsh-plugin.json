@@ -1,0 +1,58 @@
+{
+  "$schema": "https://dsh-tui-ecosystem.github.io/dsh-plugin-0.15.schema.json",
+  "manifestVersion": "0.15",
+  "id": "yuki.antigravity-backend",
+  "name": "Antigravity Backend",
+  "version": "0.5.3-rc.1",
+  "facets": {
+    "host": {
+      "entry": "./dist/index.js",
+      "apiVersion": "v1alpha1"
+    }
+  },
+  "requires": {
+    "contracts": [
+      {
+        "apiVersion": "tui.dsh/v1alpha1",
+        "kind": "Backend"
+      }
+    ]
+  },
+  "permissions": [],
+  "contributes": {
+    "commands": [],
+    "x-dsh-tui": [
+      {
+        "kind": "Backend",
+        "apiVersion": "tui.dsh/v1alpha1",
+        "id": "antigravity",
+        "name": "antigravity",
+        "spec": {
+          "id": "antigravity",
+          "label": {
+            "text": "Antigravity"
+          },
+          "shortLabel": "Antigravity",
+          "product": "Antigravity CLI",
+          "capabilities": [
+            "permissions",
+            "questions",
+            "diagnostics",
+            "models",
+            "effort",
+            "modes",
+            "commands",
+            "compact",
+            "context",
+            "images"
+          ],
+          "grants": [],
+          "confirmation": {
+            "policy": "confirm"
+          }
+        }
+      }
+    ]
+  },
+  "subscriptions": []
+}

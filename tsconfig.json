@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "target": "ES2023", "module": "NodeNext", "moduleResolution": "NodeNext",
+    "strict": true, "skipLibCheck": true, "outDir": "dist", "rootDir": "src",
+    "paths": { "@dsh-tui-contract/*": ["./node_modules/@deepseek-harness-tui/dsh-tui/lib/types/*"] }
+  },
+  "include": ["src/**/*.ts"]
+}

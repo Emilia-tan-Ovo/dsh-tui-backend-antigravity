@@ -1,0 +1,53 @@
+{
+  "name": "dsh-tui-backend-antigravity",
+  "version": "0.5.3-rc.1",
+  "description": "Antigravity native ACP backend for dsh-tui",
+  "type": "module",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "engines": {
+    "node": "^22.19 || >=24"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "2.7.0",
+    "ajv": "8.17.1",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@deepseek-harness-tui/dsh-tui": "0.19.0",
+    "@types/node": "24.10.1",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Emilia-tan-Ovo/dsh-tui-backend-antigravity.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Emilia-tan-Ovo/dsh-tui-backend-antigravity/issues"
+  },
+  "files": [
+    "dist",
+    "scripts/windows-job-host.ps1",
+    "dsh-plugin.json",
+    "cordis.patch.yml",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses/agentclientprotocol-Apache-2.0.txt",
+    "licenses/ajv-MIT.txt",
+    "licenses/dsh-agy-acp-MIT.txt",
+    "licenses/zod-MIT.txt"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  }
+}

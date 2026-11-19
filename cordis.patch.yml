@@ -1,0 +1,5 @@
+# Backend discovery remains manifest-owned. This activation only supplies themes;
+# its optional tuiThemes injection never gates the existing backend entry.
+- insert:
+    - id: yuki-antigravity-appearance
+      name: dsh-tui-backend-antigravity
