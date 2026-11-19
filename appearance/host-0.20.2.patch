@@ -1,0 +1,2846 @@
+diff --git a/bin/dsh-tui.js b/bin/dsh-tui.js
+index 110af07..cc513fe 100644
+--- a/bin/dsh-tui.js
++++ b/bin/dsh-tui.js
+@@ -597,6 +597,7 @@ const sameDir = (a, b) => {
+ }
+ 
+ const dshHome = process.env.DSH_HOME || join(homedir(), '.dsh')
++const tuiDataDir = () => process.env.DSH_TUI_APPEARANCE_DATA_DIR || join(homedir(), '.dsh-tui')
+ const profileDir = join(dshHome, 'profiles', PROFILE)
+ const profilePkgDir = join(profileDir, 'node_modules', '@deepseek-harness-tui', 'dsh-tui')
+ const profileBin = join(profilePkgDir, 'bin', 'dsh-tui.js')
+@@ -772,7 +773,7 @@ const runDoctorChecks = () => {
+   // 配置：profile 安装不使用它，全包也没有任何代码读它——缺席是常态，不是故障。
+   // 恒报 ✗ 会把旁边唯一有意义的 profile 补丁一起变成噪音（用户会去创建这个对
+   // 功能毫无影响的文件）。只在用户确实留了它时列出。
+-  const legacyConfig = join(homedir(), '.dsh-tui', 'cordis.yml')
++  const legacyConfig = join(tuiDataDir(), 'cordis.yml')
+   if (existsSync(legacyConfig)) report(true, 'config', legacyConfig)
+   const profileConfig = join(profileDir, 'cordis.patch.yml')
+   report(existsSync(profileConfig), 'config', `${profileConfig}${existsSync(profileConfig) ? '' : `  ${L.missing}`}`)
+@@ -893,7 +894,7 @@ const startDshSession = (dshArgs, profile = PROFILE, env = process.env) =>
+ // （别把那两处切片标记原文抄进注释：会让脚本的 indexOf 提前命中。）
+ const withCompileCache = env => {
+   if (env.NODE_COMPILE_CACHE !== undefined) return env
+-  const cacheDir = join(homedir(), '.dsh-tui', 'compile-cache')
++  const cacheDir = join(tuiDataDir(), 'compile-cache')
+   try {
+     mkdirSync(cacheDir, { recursive: true, mode: 0o700 })
+   } catch {
+@@ -934,7 +935,7 @@ const rescueEnv = () => {
+ // 本次启动之后写下的记录优先。
+ const readLastRunRecord = () => {
+   try {
+-    const parsed = JSON.parse(readFileSync(join(homedir(), '.dsh-tui', 'last-run.json'), 'utf8'))
++    const parsed = JSON.parse(readFileSync(join(tuiDataDir(), 'last-run.json'), 'utf8'))
+     if (parsed === null || typeof parsed !== 'object') return undefined
+     if (!isBackendIdSyntax(parsed.backendId)) return undefined
+     if (typeof parsed.sessionId !== 'string' || typeof parsed.cwd !== 'string' || typeof parsed.attemptId !== 'string') return undefined
+@@ -973,7 +974,7 @@ const noteLaunchChain = () => {
+ // 非 DSH 内核的上次会话来自各自 backends/<id>/prefs.json 的 lastSession。
+ const readBackendLastSession = backendId => {
+   try {
+-    const prefs = JSON.parse(readFileSync(join(homedir(), '.dsh-tui', 'backends', backendId, 'prefs.json'), 'utf8'))
++    const prefs = JSON.parse(readFileSync(join(tuiDataDir(), 'backends', backendId, 'prefs.json'), 'utf8'))
+     return typeof prefs?.lastSession === 'string' ? prefs.lastSession.trim() : ''
+   } catch {
+     return ''
+@@ -1023,7 +1024,7 @@ const resumeEnvForRetryTarget = () => {
+     source = backendChoice
+   } else {
+     try {
+-      target = readFileSync(join(homedir(), '.dsh-tui', 'resume.txt'), 'utf8').trim()
++      target = readFileSync(join(tuiDataDir(), 'resume.txt'), 'utf8').trim()
+     } catch {
+       // 没有历史会话可恢复——静默冷启动。
+     }
+@@ -1644,7 +1645,7 @@ if (!runningInsideProfile && ownVersion !== undefined && process.env.DSH_TUI_NO_
+   }
+   const readLastResumeTarget = () => {
+     try {
+-      return readFileSync(join(homedir(), '.dsh-tui', 'resume.txt'), 'utf8').trim()
++      return readFileSync(join(tuiDataDir(), 'resume.txt'), 'utf8').trim()
+     } catch {
+       // 没有历史会话可恢复——静默忽略，正常冷启动。
+     }
+diff --git a/lib/settings.json b/lib/settings.json
+index cfa3904..686caf0 100644
+--- a/lib/settings.json
++++ b/lib/settings.json
+@@ -87,8 +87,8 @@
+         "zh": "品牌外观"
+       },
+       "description": {
+-        "en": "Brand look of the splash and theme. Follow backend (default) switches with the active kernel — Claude boots orange (CLAUDE CODE title, Claude girl), Codex boots lavender (CODEX title, \"Build anything with Codex\"); the other values pin one look. Applies immediately.",
+-        "zh": "开屏与主题的品牌外观。跟随后端（默认）随当前内核自动切——Claude 后端整套换橙（CLAUDE CODE 大标题、Claude 娘立绘），Codex 后端整套换薰衣草紫（CODEX 大标题、\"Build anything with Codex\" 标语）；选固定档则锁定一种外观。立即生效。"
++        "en": "Brand look of the splash and theme. Follow backend (default) switches with the active kernel — Claude boots orange (CLAUDE CODE title, Claude girl), Codex boots lavender (CODEX title, \"Build anything with Codex\"); Antigravity boots Gemini blue (ANTIGRAVITY HARNESS title, existing companion settings); the other values pin one look. Applies immediately.",
++        "zh": "开屏与主题的品牌外观。跟随后端（默认）随当前内核自动切——Claude 后端整套换橙（CLAUDE CODE 大标题、Claude 娘立绘），Codex 后端整套换薰衣草紫（CODEX 大标题、\"Build anything with Codex\" 标语）；Antigravity 切为 Gemini 星蓝（ANTIGRAVITY HARNESS 标题，角色沿用当前设置）；选固定档则锁定一种外观。立即生效。"
+       },
+       "default": null,
+       "options": [
+@@ -119,6 +119,13 @@
+             "en": "Codex (lavender)",
+             "zh": "Codex（薰衣草紫）"
+           }
++        },
++        {
++          "value": "antigravity",
++          "label": {
++            "en": "Antigravity (Gemini blue)",
++            "zh": "Antigravity（Gemini 星蓝）"
++          }
+         }
+       ],
+       "restartRequired": false,
+@@ -188,6 +195,66 @@
+       "restartRequired": false,
+       "deprecated": false
+     },
++    {
++      "key": "companion.antigravitySkin",
++      "group": "splash",
++      "label": {
++        "en": "Antigravity companion skin",
++        "zh": "Antigravity 宠物皮肤"
++      },
++      "description": {
++        "en": "Auto selects Gemini only when Antigravity is the active backend. Inherit keeps the original companion and splash art rules.",
++        "zh": "实际后端是 Antigravity 时，自动选用 Gemini。继承档沿用原宠物设置与开屏艺术规则。"
++      },
++      "kind": "select",
++      "default": "auto",
++      "options": [
++        {
++          "value": "auto",
++          "label": {
++            "en": "Auto (Gemini)",
++            "zh": "自动（Gemini）"
++          }
++        },
++        {
++          "value": "inherit",
++          "label": {
++            "en": "Inherit",
++            "zh": "继承"
++          }
++        },
++        {
++          "value": "gemini",
++          "label": {
++            "en": "Gemini",
++            "zh": "Gemini"
++          }
++        },
++        {
++          "value": "deepy",
++          "label": {
++            "en": "Deepy",
++            "zh": "Deepy 小鲸鱼"
++          }
++        },
++        {
++          "value": "whaleGirl",
++          "label": {
++            "en": "Whale girl",
++            "zh": "鲸娘"
++          }
++        },
++        {
++          "value": "whale",
++          "label": {
++            "en": "Whale",
++            "zh": "像素鲸鱼"
++          }
++        }
++      ],
++      "restartRequired": false,
++      "deprecated": false
++    },
+     {
+       "key": "companion.skin",
+       "kind": "select",
+diff --git a/lib/types/adapter/ports/channel-display.d.ts b/lib/types/adapter/ports/channel-display.d.ts
+index ae23c4d..c71c5b5 100644
+--- a/lib/types/adapter/ports/channel-display.d.ts
++++ b/lib/types/adapter/ports/channel-display.d.ts
+@@ -59,7 +59,7 @@ export type SplashFontSetting = 'daily' | SplashFontId;
+  * follows the active backend (`branding.ts` resolves it); the other members
+  * pin one look. Normalization back to `auto` belongs to `branding.ts`.
+  */
+-export type BrandSetting = 'auto' | 'deepseek' | 'claude' | 'codex';
++export type BrandSetting = 'auto' | 'deepseek' | 'claude' | 'codex' | 'antigravity';
+ /** Individually selectable fields in the status footer. */
+ export interface StatusBarConfig {
+     /** Prefer the compact, single-line presentation when space permits. */
+diff --git a/lib/types/branding.d.ts b/lib/types/branding.d.ts
+index ee88abd..21854dc 100644
+--- a/lib/types/branding.d.ts
++++ b/lib/types/branding.d.ts
+@@ -20,7 +20,7 @@
+  * 的 reactive 清单里），未来进程内热切也不用改这里。
+  */
+ /** One backend look: splash words, tagline, and (when branded) a theme pair. */
+-export type Brand = 'deepseek' | 'claude' | 'codex';
++export type Brand = 'deepseek' | 'claude' | 'codex' | 'antigravity';
+ export type { BrandSetting } from './adapter/ports/channel-display.js';
+ import type { BrandSetting } from './adapter/ports/channel-display.js';
+ import type { ThemeName } from './theme.js';
+@@ -100,6 +100,8 @@ export declare const BRAND_SETTING_OPTIONS: readonly {
+ export declare function setActiveBrand(brand: Brand): void;
+ /** 当前品牌（`setActiveBrand` 之前是默认档 `deepseek`）。 */
+ export declare function getActiveBrand(): Brand;
++/** Art identity stays separate from the backend title/theme identity. */
++export declare function splashArtBrandOf(brand: Brand): Exclude<Brand, 'antigravity'>;
+ /** 订阅品牌变化（`useSyncExternalStore` 的订阅缝）。 */
+ export declare function subscribeActiveBrand(listener: () => void): () => void;
+ //# sourceMappingURL=branding.d.ts.map
+\ No newline at end of file
+diff --git a/lib/types/branding.js b/lib/types/branding.js
+index e20c590..386cdbf 100644
+--- a/lib/types/branding.js
++++ b/lib/types/branding.js
+@@ -19,9 +19,9 @@
+  * 实际上是 boot 时定死的；但读取仍走 `backendCapabilities`（在 ui-policy
+  * 的 reactive 清单里），未来进程内热切也不用改这里。
+  */
+-import { isLightThemeActive } from './theme.js';
++import { isLightThemeActive, isThemeAvailable } from './theme.js';
+ /** 设置项的合法值表（注册与归一化共用一份）。 */
+-export const BRAND_SETTING_VALUES = ['auto', 'deepseek', 'claude', 'codex'];
++export const BRAND_SETTING_VALUES = ['auto', 'deepseek', 'claude', 'codex', 'antigravity'];
+ /**
+  * 归一化不可信来源的设置值：合法值原样通过，其余（含未设置）回落 `auto`。
+  */
+@@ -36,7 +36,7 @@ export function normalizeBrandSetting(value) {
+  * @param backendId - `channel.backendCapabilities.backendId`。
+  */
+ export function brandOfBackend(backendId) {
+-    return backendId === 'claude' ? 'claude' : backendId === 'codex' ? 'codex' : 'deepseek';
++    return backendId === 'antigravity' ? 'antigravity' : backendId === 'claude' ? 'claude' : backendId === 'codex' ? 'codex' : 'deepseek';
+ }
+ /**
+  * 合成当前品牌：`DSH_TUI_BRAND`（测试缝，最高）> 设置项显式锁定 > 后端自动。
+@@ -45,9 +45,9 @@ export function brandOfBackend(backendId) {
+  */
+ export function resolveBrand(setting, backendId) {
+     const forced = process.env.DSH_TUI_BRAND;
+-    if (forced === 'claude' || forced === 'deepseek' || forced === 'codex')
++    if (forced === 'claude' || forced === 'deepseek' || forced === 'codex' || forced === 'antigravity')
+         return forced;
+-    if (setting === 'claude' || setting === 'deepseek' || setting === 'codex')
++    if (setting === 'claude' || setting === 'deepseek' || setting === 'codex' || setting === 'antigravity')
+         return setting;
+     return brandOfBackend(backendId);
+ }
+@@ -56,6 +56,7 @@ export const BRAND_SPLASH_WORDS = Object.freeze({
+     deepseek: Object.freeze({ top: 'DEEPSEEK', bottom: 'HARNESS', plain: 'DeepSeek Harness' }),
+     claude: Object.freeze({ top: 'CLAUDE', bottom: 'CODE', plain: 'Claude Code' }),
+     codex: Object.freeze({ top: 'CODEX', bottom: 'HARNESS', plain: 'Codex' }),
++    antigravity: Object.freeze({ top: 'ANTIGRAVITY', bottom: 'HARNESS', plain: 'ANTIGRAVITY HARNESS' }),
+ });
+ /** claude 品牌按终端深浅落的两套内置主题（theme.ts 注册：墨黑 / 暖纸张，
+  *  共用同一套陶土橙强调色——切明暗不丢品牌识别）。 */
+@@ -76,6 +77,7 @@ export const CODEX_BRAND_THEMES = Object.freeze({
+ export const BRAND_THEMES = Object.freeze({
+     claude: CLAUDE_BRAND_THEMES,
+     codex: CODEX_BRAND_THEMES,
++    antigravity: Object.freeze({ dark: 'antigravity:gemini-starlight', light: 'antigravity:gemini-daylight' }),
+ });
+ /**
+  * 品牌默认档的落位：浅色档 → 该品牌主题对的浅色版，深色档 → 深色版；`deepseek`
+@@ -92,12 +94,14 @@ export function brandThemeFor(brand, themeName) {
+     const pair = BRAND_THEMES[brand];
+     if (pair === undefined)
+         return undefined;
+-    return isLightThemeActive(themeName) ? pair.light : pair.dark;
++    const candidate = isLightThemeActive(themeName) ? pair.light : pair.dark;
++    return brand === 'antigravity' && !isThemeAvailable(candidate) ? undefined : candidate;
+ }
+ /** 开屏欢迎语（品牌档；deepseek 沿用 i18n 的 `logo-tagline`）。英文两行以
+  *  `\n` 分隔，渲染层按行拆开居中。 */
+ export const BRAND_TAGLINE = Object.freeze({
+     deepseek: Object.freeze({ zh: '', en: '' }),
++    antigravity: Object.freeze({ zh: '使用 Antigravity 构建', en: 'Build with Antigravity' }),
+     codex: Object.freeze({ zh: '用 Codex 构建一切', en: 'Build anything with Codex' }),
+     claude: Object.freeze({ zh: '创造精彩，守护关键。', en: "Create what's exciting.\nMaintain what's essential." }),
+ });
+@@ -107,11 +111,16 @@ export const BRAND_SETTING_OPTIONS = [
+     { value: 'deepseek', label: 'DeepSeek (mist blue)', descriptions: { zh: 'DeepSeek（雾蓝）' } },
+     { value: 'claude', label: 'Claude Code (orange)', descriptions: { zh: 'Claude Code（橙）' } },
+     { value: 'codex', label: 'Codex (lavender)', descriptions: { zh: 'Codex（薰衣草紫）' } },
++    { value: 'antigravity', label: 'Antigravity (Gemini blue)', descriptions: { zh: 'Antigravity（Gemini 星蓝）' } },
+ ];
+ // ── 品牌的运行时镜像（ThemeProvider 在 Chat 外层，拿不到 channel prop） ──────
+ // 与 theme.ts 的 autoBase 镜像同一思路：plugin 在首帧渲染前 `setActiveBrand`
+ // 铺好初值（避免蓝→橙闪一下），Chat 在品牌变化时跟进更新；
+ // ThemeProvider 用 useSyncExternalStore 订阅，切档即时生效。
++/** T04: new branding does not change the existing companion/portrait selection. */
++export function splashArtBrandOf(brand) {
++    return brand === 'antigravity' ? 'deepseek' : brand;
++}
+ let activeBrand = 'deepseek';
+ const brandListeners = new Set();
+ /** 更新当前品牌（值不变时无操作）。 */
+diff --git a/lib/types/components/LogoV2.d.ts b/lib/types/components/LogoV2.d.ts
+index 394480d..e766bf0 100644
+--- a/lib/types/components/LogoV2.d.ts
++++ b/lib/types/components/LogoV2.d.ts
+@@ -33,7 +33,7 @@ import { type WhaleIntroId } from './whaleFrames.js';
+  * with a clickable "star us on GitHub" line whose indent is recomputed from
+  * its own width.
+  */
+-export declare function LogoV2({ model, effort, cwd, skipIntro, intro, tip, fontId, whale, whaleIdle, whaleGirl, brand, starred, starReveal, onStarClick, working, drift, egg, starChance, align, chrome, arrangement, companionSkin, mascotBox, }: {
++export declare function LogoV2({ model, effort, cwd, skipIntro, intro, tip, fontId, whale, whaleIdle, whaleGirl, brand, starred, starReveal, onStarClick, working, drift, egg, starChance, align, chrome, arrangement, companionSkin, mascotBox, plainTitle, }: {
+     /** 模型/effort/工作目录只画在 full 形态里；minimal（落地页）不传也行。 */
+     model?: string;
+     effort?: string | undefined;
+@@ -131,5 +131,7 @@ export declare function LogoV2({ model, effort, cwd, skipIntro, intro, tip, font
+     companionSkin?: string;
+     /** 落地页传入与高度预算相同的紧凑图片槽。 */
+     mascotBox?: SplashImageBox;
++    /** Use the same compact title selected by the launchpad height budget. */
++    plainTitle?: boolean;
+ }): React.ReactNode;
+ //# sourceMappingURL=LogoV2.d.ts.map
+\ No newline at end of file
+diff --git a/lib/types/components/LogoV2.js b/lib/types/components/LogoV2.js
+index ed2f7f3..b9d2df0 100644
+--- a/lib/types/components/LogoV2.js
++++ b/lib/types/components/LogoV2.js
+@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
+ import { fileURLToPath } from 'node:url';
+ import { Box, Text, useAnimationFrame, useTerminalImages, useTerminalSize } from '../ui.js';
+ import { getTheme, isLightThemeActive } from '../theme.js';
+-import { BRAND_SPLASH_WORDS, BRAND_TAGLINE } from '../branding.js';
++import { BRAND_SPLASH_WORDS, BRAND_TAGLINE, splashArtBrandOf } from '../branding.js';
+ import { useTheme } from './design-system/ThemeProvider.js';
+ import { interpolateColor, parseRGB } from './Spinner/spinnerUtils.js';
+ import { paintedWidth, renderBigText } from './bigfont.js';
+@@ -23,7 +23,7 @@ import { STANDARD_FRAME_INDEX, WhaleArt } from './Whale.js';
+ import { WhaleGirlArt } from './WhaleGirl.js';
+ import { ClaudeGirlArt } from './ClaudeGirl.js';
+ import { MAID_BOX_CENTER, MaidPortrait, portraitAssetsOf, useMaidPortraits } from './maidPortrait.js';
+-import { SplashMascot, useSplashMascotSkin, useSplashMascotBox } from './sidePanel/companion/SplashMascot.js';
++import { SplashMascot, useSplashCompanion, useSplashMascotBox } from './sidePanel/companion/SplashMascot.js';
+ import { OPENING_SEQUENCES, pickOpeningSequence, WHALE_FRAME_INDEX } from './whaleFrames.js';
+ import { RESTING_POSE } from './whaleLayers.js';
+ import { initialWhaleIdleState, nextWhaleIdleStep, } from './whaleIdle.js';
+@@ -90,7 +90,7 @@ function capitalize(text) {
+  * with a clickable "star us on GitHub" line whose indent is recomputed from
+  * its own width.
+  */
+-export function LogoV2({ model = '', effort, cwd = '', skipIntro = false, intro, tip, fontId, whale = true, whaleIdle = true, whaleGirl = false, brand = 'deepseek', starred = false, starReveal, onStarClick, working = false, drift, egg, starChance, align = 'start', chrome = 'full', arrangement = 'row', companionSkin, mascotBox, }) {
++export function LogoV2({ model = '', effort, cwd = '', skipIntro = false, intro, tip, fontId, whale = true, whaleIdle = true, whaleGirl = false, brand = 'deepseek', starred = false, starReveal, onStarClick, working = false, drift, egg, starChance, align = 'start', chrome = 'full', arrangement = 'row', companionSkin, mascotBox, plainTitle = false, }) {
+     // One intro per logo mount: the production path rolls (startup splash
+     // and each /deepseek replay roll independently), the `intro` seam pins
+     // a specific animation for probes.
+@@ -126,8 +126,9 @@ export function LogoV2({ model = '', effort, cwd = '', skipIntro = false, intro,
+     // 同步可画）；两者都取代艺术槽的原住民（分层鲸/静态女仆娘立绘）。
+     // 'whale'/未知皮肤 → undefined，原路径零改动。冻结/落地页（whaleIdle=
+     // false）时吉祥物定格 idle 帧 0、零时钟（SplashMascot 内部保证）。
+-    const mascotSkin = useSplashMascotSkin(companionSkin);
+-    const compactMascotBox = useSplashMascotBox(mascotSkin, brand === 'deepseek' && arrangement === 'column' && chrome === 'minimal');
++    const artBrand = splashArtBrandOf(brand);
++    const { mascotSkin, backendPetOverride } = useSplashCompanion(companionSkin);
++    const compactMascotBox = useSplashMascotBox(mascotSkin, (backendPetOverride || artBrand === 'deepseek') && arrangement === 'column' && chrome === 'minimal');
+     const imageBox = mascotBox ?? compactMascotBox;
+     // ── Whale behaviors (ported from the dsh-ui-whale pet) ─────────────────
+     // Intro-phase click → heart pass: whole heart frames over the opening
+@@ -181,7 +182,7 @@ export function LogoV2({ model = '', effort, cwd = '', skipIntro = false, intro,
+     const [dailyEgg] = React.useState(() => (egg === undefined ? pickSplashEgg() : egg));
+     const titleFont = resolveSplashTitleFont(font, brand, dailyEgg);
+     // 窄终端阶梯：鲸鱼 + 大字 → 纯大字 → 纯鲸鱼 → 一行纯文字（阈值随字体字身宽度变）。
+-    const splash = resolveSplashLayout(columns, { whale, font: titleFont });
++    const splash = resolveSplashLayout(columns, { whale, font: titleFont, preserveTitle: brand === 'antigravity' });
+     /**
+      * 上下排布（落地页）时立绘与词标**不共行**，宽轴那套「谁挤掉谁」的判定不适用：
+      * 立绘只看自己放不放得下（盒宽）。照并排阈值走会在 55–96 列这一大段把立绘判掉，
+@@ -192,8 +193,8 @@ export function LogoV2({ model = '', effort, cwd = '', skipIntro = false, intro,
+     const { showWhale, showBigTitle, showPlainTitle } = stacked
+         ? {
+             showWhale: whale && columns >= WHALE_BOX_WIDTH,
+-            showBigTitle: splash.showBigTitle,
+-            showPlainTitle: !splash.showBigTitle,
++            showBigTitle: !plainTitle && splash.showBigTitle,
++            showPlainTitle: plainTitle || !splash.showBigTitle,
+         }
+         : splash;
+     // 女仆娘档优先走**真图**（Kitty/Sixel 终端图像协议，见 `maidPortrait.tsx`）；
+@@ -205,10 +206,10 @@ export function LogoV2({ model = '', effort, cwd = '', skipIntro = false, intro,
+     // whaleGirl 设置。像素鲸鱼、鲸鱼娘与 deepy/鲸娘皮肤是 DeepSeek 品牌的资产。
+     // 两种形态都是静态立绘：闲置动画与点击爱心仍是鲸鱼专属。
+     // `maidImageActive` 只在「真图画出来了」时为真。
+-    const claudeArt = brand === 'claude';
+-    const portraitMode = whaleGirl || brand !== 'deepseek';
++    const claudeArt = artBrand === 'claude';
++    const portraitMode = !backendPetOverride && (whaleGirl || artBrand !== 'deepseek');
+     const imagesAvailable = useTerminalImages(portraitMode);
+-    const portraits = useMaidPortraits(portraitMode && imagesAvailable, portraitAssetsOf(brand));
++    const portraits = useMaidPortraits(portraitMode && imagesAvailable, portraitAssetsOf(artBrand));
+     const maidSource = portraits?.normal;
+     const maidImageActive = portraitMode && imagesAvailable && maidSource !== undefined;
+     // 点一下她 → 换成「高兴鲸娘」几秒（自动回安静版；第一个任务后定格、
+@@ -403,14 +404,14 @@ export function LogoV2({ model = '', effort, cwd = '', skipIntro = false, intro,
+                 : { base: LAVENDER_BRIGHT, start: LAVENDER_BRIGHT, mid: LAVENDER_SOFT, end: LAVENDER_PALE, flash: LAVENDER_FLASH })
+             : undefined;
+     const brandBase = brandLadder?.base ?? wordmarkRGB;
+-    const bevelShade = titleFont.id === 'bevel'
++    const bevelShade = titleFont.id === 'bevel' && brand !== 'antigravity'
+         ? {
+             from: interpolateColor(brandBase, { r: 255, g: 255, b: 255 }, 0.45),
+             to: interpolateColor(brandBase, { r: 24, g: 18, b: 12 }, 0.55),
+         }
+         : undefined;
+     // 扫光高光同族：橙字上扫过蓝光会很脏；claude 深底暖阳高光、浅底深化高光。
+-    const flash = brandLadder?.flash ?? FLASH;
++    const flash = brand === 'antigravity' ? wordmarkShimmerRGB : (brandLadder?.flash ?? FLASH);
+     // claude 渐变是**跨两行的三档色阶**（行一 起→中、行二 中→收），整幅从左
+     // 上到右下走完色阶。起点两轮提亮（用户反馈"还是暗"）：深底直接从亮档
+     // #E68A69 起步 → #EFA97E → 奶油橙 #FBD6B0（官方正色 #D77757 明度中等、
+@@ -445,15 +446,21 @@ export function LogoV2({ model = '', effort, cwd = '', skipIntro = false, intro,
+     const bottomShift = centeredTitle
+         ? Math.max(0, Math.round((topInk - bottomInk) / 2))
+         : (uniformBrand ? 0 : bottomIndent);
+-    const bigDeepSeek = renderBigText(titleFont, top, t, titleFrom, titleTopTo, flash, 60, topKerning, topIndent);
+-    const bigHarness = renderBigText(titleFont, bottom, t, titleBottomFrom, titleBottomTo, flash, 60, bottomKerning, bottomShift);
++    const titleStops = brand !== 'antigravity' || titleFont.palette !== undefined ? undefined
++        : (brandPaper
++            ? ['#1A73E8', '#D93025', '#996A00', '#1E8E3E', '#7050CB']
++            : ['#4285F4', '#EA4335', '#FBBC04', '#34A853', '#A178F1'])
++            .map(hex => ({ r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) }));
++    const bigDeepSeek = renderBigText(titleFont, top, t, titleFrom, titleTopTo, flash, 60, topKerning, topIndent, titleStops);
++    const geminiBottom = brand === 'antigravity' && titleFont.palette === undefined;
++    const bigHarness = renderBigText(titleFont, bottom, t, geminiBottom ? wordmarkRGB : titleBottomFrom, geminiBottom ? wordmarkShimmerRGB : titleBottomTo, flash, 60, bottomKerning, bottomShift);
+     // 立绘槽位的**唯一真源**：文字列的实际行数。full = 词标 1 + 两排大字 +
+     // 两排之间空 1 行 + 模型/目录/提示 3 行；minimal = 只有两排大字 + 空行
+     //（信息行整块不画，见 chrome prop）。槽位与它等高，图片既不压过文字列
+     // 也不留一截在下面（实机反馈「超出去、不和谐」）；大字换字体/换词时也
+     // 自动跟着变，不写死数字。
+     const textColumnRows = bigDeepSeek.length + bigHarness.length + (chrome === 'minimal' ? 1 : 5);
+-    return (_jsxs(Box, { ref: ref, flexDirection: "column", marginTop: 1, ...(align === 'center' ? { alignItems: 'center' } : {}), children: [_jsxs(Box, { flexDirection: arrangement === 'column' ? 'column' : 'row', gap: arrangement === 'column' ? 1 : COLUMN_GAP, alignItems: "center", ...(align === 'center' || arrangement === 'column' ? {} : { width: '100%' }), children: [showWhale && (_jsx(Box, { flexDirection: "column", alignItems: "center", flexShrink: 0, onClick: () => {
++    return (_jsxs(Box, { ref: ref, flexDirection: "column", ...(brand === 'antigravity' ? { flexShrink: 0 } : {}), marginTop: 1, ...(align === 'center' ? { alignItems: 'center' } : {}), children: [_jsxs(Box, { flexDirection: arrangement === 'column' ? 'column' : 'row', gap: arrangement === 'column' ? 1 : COLUMN_GAP, alignItems: "center", ...(align === 'center' || arrangement === 'column' ? {} : { width: '100%' }), children: [showWhale && (_jsx(Box, { flexDirection: "column", alignItems: "center", flexShrink: 0, onClick: () => {
+                             // Frozen (first task started): the whale is a static logo —
+                             // clicks do nothing. Settled: the layered planner consumes the
+                             // click on its next tick — run that tick immediately so the
+@@ -477,7 +484,7 @@ export function LogoV2({ model = '', effort, cwd = '', skipIntro = false, intro,
+                                 setHeartSeq(0);
+                                 setHeartKey(k => k + 1);
+                             }
+-                        }, children: _jsx(Box, { width: WHALE_BOX_WIDTH, flexDirection: "column", alignItems: "center", children: brand === 'deepseek' && mascotSkin !== undefined ? (_jsx(SplashMascot, { skin: mascotSkin, active: !whaleFrozen && whaleIdle, imageBox: imageBox })) : portraitMode ? (_jsx(Box, { width: WHALE_BOX_WIDTH, height: textColumnRows, flexDirection: "row", justifyContent: "center", alignItems: "center", children: maidImageActive ? (_jsx(MaidPortrait, { source: maidHappy ? (portraits?.happy ?? maidSource) : maidSource, maxColumns: WHALE_BOX_WIDTH, maxRows: textColumnRows, presentation: "transcript" })) : (claudeArt ? _jsx(ClaudeGirlArt, { width: WHALE_BOX_WIDTH }) : _jsx(WhaleGirlArt, { width: WHALE_BOX_WIDTH })) })) : (_jsx(WhaleArt, { frameIndex: frameIndex, pose: settled && whaleIdle && !whaleFrozen ? (idlePose ?? RESTING_POSE) : undefined, width: WHALE_BOX_WIDTH })) }) })), (showBigTitle || showPlainTitle) && (_jsxs(Box, { flexDirection: "column", flexShrink: 1, children: [chrome !== 'minimal' && (_jsxs(Text, { wrap: "truncate-end", children: [sweep('✦ dsh-TUI', t, wordmarkRGB, wordmarkShimmerRGB, 60), _jsx(Text, { dimColor: true, children: '  v' + VERSION })] })), showBigTitle ? (_jsxs(_Fragment, { children: [bigDeepSeek.map((row, index) => (_jsx(Text, { wrap: "truncate-end", children: row.replace(/\s+$/u, '') }, `ds-${index}`))), _jsx(Box, { height: 1 }), bigHarness.map((row, index) => (_jsx(Text, { wrap: "truncate-end", children: row.replace(/\s+$/u, '') }, `h-${index}`)))] })) : (showPlainTitle && (_jsx(Text, { color: "accent", bold: true, wrap: "truncate-end", children: words.plain }))), chrome !== 'minimal' && (_jsxs(_Fragment, { children: [_jsxs(Text, { wrap: "truncate-end", children: [model, effort !== undefined && _jsx(Text, { dimColor: true, children: ' · ' + capitalize(effort) + ' effort' })] }), _jsx(Text, { dimColor: true, wrap: "truncate-end", children: cwd }), _jsxs(Text, { wrap: "truncate-end", children: [_jsx(Text, { dimColor: true, children: tr('logo-tip-prefix') }), getLang() === 'zh' ? randomTip.zh : randomTip.en, _jsx(Text, { dimColor: true, children: ' · /tips ' + tr('logo-tip-more') })] })] })), chrome !== 'minimal' && driftLine != null && (_jsxs(Text, { color: "warning", wrap: "wrap", children: ["\u26A0", ' ', tOr(`logo-drift-${driftLine.kind}`, `The dsh engine (${driftLine.versions.join(' / ')}) does not match the validated ${UPSTREAM_VALIDATED_VERSION}; reinstall via npm i -g @deepseek-ai/dsh@${UPSTREAM_VALIDATED_VERSION}.`, {
++                        }, children: _jsx(Box, { width: WHALE_BOX_WIDTH, flexDirection: "column", alignItems: "center", children: (backendPetOverride || artBrand === 'deepseek') && mascotSkin !== undefined ? (_jsx(SplashMascot, { skin: mascotSkin, active: !whaleFrozen && whaleIdle, imageBox: imageBox })) : portraitMode ? (_jsx(Box, { width: WHALE_BOX_WIDTH, height: textColumnRows, flexDirection: "row", justifyContent: "center", alignItems: "center", children: maidImageActive ? (_jsx(MaidPortrait, { source: maidHappy ? (portraits?.happy ?? maidSource) : maidSource, maxColumns: WHALE_BOX_WIDTH, maxRows: textColumnRows, presentation: "transcript" })) : (claudeArt ? _jsx(ClaudeGirlArt, { width: WHALE_BOX_WIDTH }) : _jsx(WhaleGirlArt, { width: WHALE_BOX_WIDTH })) })) : (_jsx(WhaleArt, { frameIndex: frameIndex, pose: settled && whaleIdle && !whaleFrozen ? (idlePose ?? RESTING_POSE) : undefined, width: WHALE_BOX_WIDTH })) }) })), (showBigTitle || showPlainTitle) && (_jsxs(Box, { flexDirection: "column", flexShrink: 1, children: [chrome !== 'minimal' && (_jsxs(Text, { wrap: "truncate-end", children: [sweep('✦ dsh-TUI', t, wordmarkRGB, wordmarkShimmerRGB, 60), _jsx(Text, { dimColor: true, children: '  v' + VERSION })] })), showBigTitle ? (_jsxs(_Fragment, { children: [bigDeepSeek.map((row, index) => (_jsx(Text, { wrap: "truncate-end", children: row.replace(/\s+$/u, '') }, `ds-${index}`))), _jsx(Box, { height: 1 }), bigHarness.map((row, index) => (_jsx(Text, { wrap: "truncate-end", children: row.replace(/\s+$/u, '') }, `h-${index}`)))] })) : (showPlainTitle && (_jsx(Text, { color: "accent", bold: true, wrap: brand === 'antigravity' ? "wrap" : "truncate-end", children: brand === 'antigravity' && columns < 19 ? 'ANTIGRAVITY\nHARNESS' : words.plain }))), chrome !== 'minimal' && (_jsxs(_Fragment, { children: [_jsxs(Text, { wrap: "truncate-end", children: [model, effort !== undefined && _jsx(Text, { dimColor: true, children: ' · ' + capitalize(effort) + ' effort' })] }), _jsx(Text, { dimColor: true, wrap: "truncate-end", children: cwd }), _jsxs(Text, { wrap: "truncate-end", children: [_jsx(Text, { dimColor: true, children: tr('logo-tip-prefix') }), getLang() === 'zh' ? randomTip.zh : randomTip.en, _jsx(Text, { dimColor: true, children: ' · /tips ' + tr('logo-tip-more') })] })] })), chrome !== 'minimal' && driftLine != null && (_jsxs(Text, { color: "warning", wrap: "wrap", children: ["\u26A0", ' ', tOr(`logo-drift-${driftLine.kind}`, `The dsh engine (${driftLine.versions.join(' / ')}) does not match the validated ${UPSTREAM_VALIDATED_VERSION}; reinstall via npm i -g @deepseek-ai/dsh@${UPSTREAM_VALIDATED_VERSION}.`, {
+                                         installed: driftLine.versions.join(' / '),
+                                         validated: UPSTREAM_VALIDATED_VERSION,
+                                         primary: UPSTREAM_VALIDATED_VERSION,
+diff --git a/lib/types/components/bigfont.d.ts b/lib/types/components/bigfont.d.ts
+index c845686..cca8fd8 100644
+--- a/lib/types/components/bigfont.d.ts
++++ b/lib/types/components/bigfont.d.ts
+@@ -53,5 +53,5 @@ export declare function bigTextWidth(font: GlyphMetrics, text: string, kerning?:
+  * @param indent - 每行左侧缩进列数（下排居中用，默认 0）。
+  * @returns 5 行 ANSI，每行是点阵字的一行。
+  */
+-export declare function renderBigText(font: SplashFont, text: string, time: number, from: Rgb, to: Rgb, flash: Rgb, stepMs?: number, kerning?: number, indent?: number): string[];
++export declare function renderBigText(font: SplashFont, text: string, time: number, from: Rgb, to: Rgb, flash: Rgb, stepMs?: number, kerning?: number, indent?: number, stops?: readonly Rgb[]): string[];
+ //# sourceMappingURL=bigfont.d.ts.map
+\ No newline at end of file
+diff --git a/lib/types/components/bigfont.js b/lib/types/components/bigfont.js
+index 01e4484..519873e 100644
+--- a/lib/types/components/bigfont.js
++++ b/lib/types/components/bigfont.js
+@@ -52,7 +52,7 @@ export function bigTextWidth(font, text, kerning = 1) {
+  * @param indent - 每行左侧缩进列数（下排居中用，默认 0）。
+  * @returns 5 行 ANSI，每行是点阵字的一行。
+  */
+-export function renderBigText(font, text, time, from, to, flash, stepMs = 60, kerning = 1, indent = 0) {
++export function renderBigText(font, text, time, from, to, flash, stepMs = 60, kerning = 1, indent = 0, stops) {
+     const width = paintedWidth(font, text, kerning) + indent;
+     const cycle = width + SWEEP_WINDOW * 2;
+     const sweepStart = (Math.floor(time / stepMs) % cycle) - SWEEP_WINDOW;
+@@ -73,7 +73,13 @@ export function renderBigText(font, text, time, from, to, flash, stepMs = 60, ke
+                 return;
+             }
+             const t = width <= 1 ? 0 : x / (width - 1);
+-            let color = interpolateColor(from, to, t);
++            let color;
++            if (stops !== undefined && stops.length >= 2) {
++                const u = Math.max(0, Math.min(1, t)) * (stops.length - 1);
++                const i = Math.min(Math.floor(u), stops.length - 2);
++                color = interpolateColor(stops[i], stops[i + 1], u - i);
++            }
++            else color = interpolateColor(from, to, t);
+             if (x >= sweepStart && x < sweepStart + SWEEP_WINDOW) {
+                 color = interpolateColor(color, flash, pulse);
+             }
+diff --git a/lib/types/components/launchpadLayout.d.ts b/lib/types/components/launchpadLayout.d.ts
+index 6dc5cbe..a54f913 100644
+--- a/lib/types/components/launchpadLayout.d.ts
++++ b/lib/types/components/launchpadLayout.d.ts
+@@ -71,5 +71,9 @@ export declare function resolveLaunchpadLayout(columns: number, rows: number, op
+     params?: boolean;
+     artRows?: number;
+     cornerRows?: number;
++    /** Opt-in compact title when the minimum large-title stage cannot fit. */
++    collapseTitle?: boolean;
++    plainTitle?: boolean;
++    plainTitleRows?: number;
+ }): LaunchpadLayout;
+ //# sourceMappingURL=launchpadLayout.d.ts.map
+\ No newline at end of file
+diff --git a/lib/types/components/launchpadLayout.js b/lib/types/components/launchpadLayout.js
+index 660f031..d2888e9 100644
+--- a/lib/types/components/launchpadLayout.js
++++ b/lib/types/components/launchpadLayout.js
+@@ -109,17 +109,17 @@ export function resolveLaunchpadLayout(columns, rows, options) {
+     // 与 resolveSplashLayout 同一套阈值：末尾那一格字距也算进去，否则恰好卡阈值
+     // 时 Ink 会把最后一个字形换成省略号。品牌与节日词对按两行中较宽者判断。
+     const titleWidth = Math.max(bigTextWidth(font, font.tagline.top, font.tagline.topKerning) + font.tagline.topKerning, bigTextWidth(font, font.tagline.bottom, font.tagline.bottomKerning) + font.tagline.bottomKerning);
+-    const showBigTitle = columns >= titleWidth;
++    const showBigTitle = !options.plainTitle && columns >= titleWidth;
+     const artBox = WHALE_BOX_WIDTH;
+     const wantsArt = options.whale || options.whaleGirl === true;
+     // 上下排布：立绘只看自己放不放得下，不再和词标抢同一行的宽度。
+     const showWhale = wantsArt && columns >= artBox;
+-    const showPlainTitle = !showBigTitle && !showWhale;
++    const showPlainTitle = !showBigTitle && (!showWhale || options.collapseTitle);
+     const showHero = showWhale || showBigTitle || showPlainTitle;
+     // 上下排布时头部 = 立绘 + 间隔 1 + 大字；退化档位取各自实际行数。
+     // 立绘行数按**当天上场的形态**算（鲸鱼 13 / 娘与吉祥物 15），不写死。
+     const artRows = showWhale ? (options.artRows ?? DEFAULT_ART_ROWS) : 0;
+-    const titleRows = showBigTitle ? BIG_TITLE_ROWS : PLAIN_TITLE_ROWS;
++    const titleRows = showBigTitle ? BIG_TITLE_ROWS : (options.plainTitleRows ?? PLAIN_TITLE_ROWS);
+     const heroRows = showHero ? (artRows > 0 ? artRows + 1 + titleRows : titleRows) : 0;
+     // 头部整块（含根盒 marginTop）实际占的行数：阶梯与 totalRows 都按它算。
+     const heroBlockRows = showHero ? heroRows + HERO_TOP_MARGIN : 0;
+@@ -174,6 +174,9 @@ export function resolveLaunchpadLayout(columns, rows, options) {
+     const tipGapRows = keepBreath ? TIP_BLOCK_ROWS - 1 : TIP_BLOCK_ROWS_TIGHT - 1;
+     const total = (showTip ? 1 + tipGapRows : 0) + hintsGapRows + (showHints ? HINTS_ROWS : 0) + heroBlockFinal
+         + heroGapRows + cardRows + paramRows + cornersBlockRows;
++    // Opt-in long-brand fallback. Re-run the same budget with a real plain title.
++    if (options.collapseTitle && showBigTitle && total > rows)
++        return resolveLaunchpadLayout(columns, rows, { ...options, plainTitle: true });
+     return {
+         stage,
+         // dropArt 只撤立绘——`heroRowsFinal`/`totalRows` 都按「撤立绘、留大字」算，
+diff --git a/lib/types/components/sidePanel/companion/CompanionPanel.js b/lib/types/components/sidePanel/companion/CompanionPanel.js
+index 84aedbd..fb15af2 100644
+--- a/lib/types/components/sidePanel/companion/CompanionPanel.js
++++ b/lib/types/components/sidePanel/companion/CompanionPanel.js
+@@ -1,3 +1,4 @@
++import { geminiAdvanceReaction, geminiAnimationKey, geminiDelay, geminiPreemptsReaction, geminiReaction } from './geminiPolicy.js';
+ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+ /**
+  * CompanionPanel derives mood, interaction animations and bubbles from the
+@@ -90,6 +91,8 @@ function hoverSemantic(zone) {
+ }
+ export function CompanionPanel({ width, height, focused, visible }) {
+     const channel = useSidePanelChannel();
++    const skinId = React.useSyncExternalStore(subscribeCompanionSkin, getCompanionSkin);
++    const isGemini = skinId === 'gemini';
+     const runtimeCtx = React.useContext(SidePanelRuntimeContext);
+     const activity = runtimeCtx?.activity;
+     const attentionCtx = runtimeCtx?.attention;
+@@ -134,6 +137,18 @@ export function CompanionPanel({ width, height, focused, visible }) {
+     // 悬停展示语义，提交后按驻留时长推进。
+     const hoverDisplayRef = React.useRef(initialCompanionHoverState);
+     const now = Date.now();
++    const previousGemini = React.useRef(isGemini);
++    const geminiChanged = previousGemini.current !== isGemini;
++    if (geminiChanged) {
++        previousGemini.current = isGemini;
++        overrideRef.current = undefined;
++        clicksRef.current = [];
++        dragSessionRef.current = undefined;
++        dragPosRef.current = undefined;
++        flybackRef.current = undefined;
++        heartPendingRef.current = false;
++    }
++
+     // 恢复可见的第一帧：语义跳闸对齐 + 通知积压静默吞掉。
+     const prevVisibleRef = React.useRef(visible);
+     const realignPending = visible && !prevVisibleRef.current;
+@@ -144,7 +159,7 @@ export function CompanionPanel({ width, height, focused, visible }) {
+     if (newestNotify !== undefined && visible) {
+         const reaction = notificationReactionKind(newestNotify.color);
+         overrideRef.current = {
+-            semantic: DEEPY_NOTIFICATION_REACTION[reaction] ?? 'idle-look',
++            semantic: isGemini && reaction === 'success' ? 'thumbs-up' : DEEPY_NOTIFICATION_REACTION[reaction] ?? 'idle-look',
+             since: now,
+             until: now + NOTIFICATION_BUBBLE_MS,
+         };
+@@ -188,20 +203,26 @@ export function CompanionPanel({ width, height, focused, visible }) {
+             const changed = carryRef.current.branch !== undefined && carryRef.current.until <= now;
+             carryRef.current = { branch: gitBranch, until: changed ? now + CARRYING_FLASH_MS : carryRef.current.until };
+             if (changed && visible) {
+-                overrideRef.current = { semantic: 'carrying', since: now, until: now + CARRYING_FLASH_MS };
++                overrideRef.current = isGemini ? geminiReaction('carrying', now, CARRYING_FLASH_MS) : { semantic: 'carrying', since: now, until: now + CARRYING_FLASH_MS };
+             }
+         }
+     }
+     const displayRef = React.useRef(initialCompanionDisplayState);
++    if (isGemini && (geminiChanged || displayRef.current.since <= 0))
++        displayRef.current = { ...displayRef.current, since: now };
+     displayRef.current = stepCompanionDisplay(displayRef.current, targetSemantic, now, { realign: realignPending });
+     const display = displayRef.current;
+     // 醒来闪现：显示语义刚离开 sleeping → waking（官方 trigger：睡眠中被扰）。
+     const prevSemanticRef = React.useRef(initialCompanionDisplayState.semantic);
+     if (prevSemanticRef.current === 'sleeping' && display.semantic !== 'sleeping'
+         && (overrideRef.current === undefined || overrideRef.current.until <= now)) {
+-        overrideRef.current = { semantic: 'waking', since: now, until: now + WAKING_FLASH_MS };
++        overrideRef.current = isGemini ? geminiReaction('waking', now, WAKING_FLASH_MS) : { semantic: 'waking', since: now, until: now + WAKING_FLASH_MS };
+     }
+     prevSemanticRef.current = display.semantic;
++    if (isGemini && visible) {
++        if (geminiPreemptsReaction(targetSemantic, overrideRef.current)) overrideRef.current = undefined;
++        else overrideRef.current = geminiAdvanceReaction(overrideRef.current, now, 1600);
++    }
+     const activeOverride = overrideRef.current !== undefined && overrideRef.current.until > now ? overrideRef.current : undefined;
+     // --- 最终动画键（互动覆盖 > 悬停 > idle 轮换 > 平滑语义）-----------------
+     const hover = hoverState !== undefined && visible ? hoverState : undefined;
+@@ -224,7 +245,8 @@ export function CompanionPanel({ width, height, focused, visible }) {
+             animSince = hoverDisplay.since;
+         }
+         else {
+-            const index = idleRotationIndex(display.since, now, DEEPY_IDLE_ROTATION.length);
++            const index = isGemini ? Math.max(0, Math.floor((now - display.since) / IDLE_ROTATE_MS)) % DEEPY_IDLE_ROTATION.length
++                : idleRotationIndex(display.since, now, DEEPY_IDLE_ROTATION.length);
+             animationSemantic = DEEPY_IDLE_ROTATION[index] ?? 'idle';
+             animSince = display.since + Math.max(0, Math.floor((now - display.since) / IDLE_ROTATE_MS)) * IDLE_ROTATE_MS;
+         }
+@@ -233,10 +255,10 @@ export function CompanionPanel({ width, height, focused, visible }) {
+         animationSemantic = display.semantic;
+         animSince = display.since;
+     }
+-    const animationKey = deepyAnimationFor(animationSemantic);
++    const animationKey = isGemini ? geminiAnimationKey(animationSemantic) : deepyAnimationFor(animationSemantic);
+     // Pause the shared clock while this panel is hidden; the local tick drives visible frames.
+-    const [clockRef] = useAnimationFrame(!visible ? null : display.semantic === 'sleeping' ? 1000 : 120);
+-    const tickMs = !visible
++    const [clockRef] = useAnimationFrame(!visible || isGemini ? null : display.semantic === 'sleeping' ? 1000 : 120);
++    const tickMs = !visible || isGemini
+         ? 0
+         : display.semantic === 'sleeping' && activeOverride === undefined && hover === undefined
+             ? TICK_MS_SLEEPING
+@@ -247,8 +269,27 @@ export function CompanionPanel({ width, height, focused, visible }) {
+         const id = setInterval(() => setBump(n => n + 1), tickMs);
+         return () => { clearInterval(id); };
+     }, [tickMs]);
++    const sleepAt = lastInputAtRef.current + SLEEP_AFTER_MS;
++    const pendingDeadline = at => at > now ? at - now : Infinity;
++    const geminiWake = !visible || !isGemini ? Infinity : Math.min(
++        geminiDelay(animationKey, now - animSince),
++        activeOverride ? Math.max(1, activeOverride.until - now) : Infinity,
++        pendingDeadline(sleepAt),
++        pendingDeadline(celebrateUntil),
++        pendingDeadline(bubbleRef.current?.until),
++        display.semantic === 'idle' ? IDLE_ROTATE_MS - Math.max(0, now - display.since) % IDLE_ROTATE_MS : Infinity,
++        // Keep the host's semantic/hover smoothing and flyback fed while
++        // its timers have work, even at the last frame of a one-shot.
++        targetSemantic !== display.semantic || hoverDisplay.semantic !== hoverSemantic(hover?.zone) || flybackRef.current !== undefined ? TICK_MS : Infinity,
++    );
++    React.useEffect(() => {
++        if (!Number.isFinite(geminiWake)) return;
++        const timer = setTimeout(() => setBump(n => n + 1), geminiWake);
++        timer.unref?.();
++        return () => clearTimeout(timer);
++    }, [geminiWake, isGemini && visible ? now : 0]);
+     // --- 皮肤与帧 -------------------------------------------------------------
+-    const skinId = React.useSyncExternalStore(subscribeCompanionSkin, getCompanionSkin);
++
+     const skin = resolveCompanionSkin(skinId);
+     const useDeepy = skinId === DeepySkin.id;
+     const kit = useDeepy ? loadDeepyKit() : undefined;
+@@ -338,7 +379,7 @@ export function CompanionPanel({ width, height, focused, visible }) {
+     usePanelInput((input, key) => {
+         if (key.return_ === true || input === '\r') {
+             const at = Date.now();
+-            overrideRef.current = { semantic: ENTER_POKE_SIDE, since: at, until: at + POKE_REACTION_MS };
++            overrideRef.current = isGemini ? geminiReaction(ENTER_POKE_SIDE, at, POKE_REACTION_MS) : { semantic: ENTER_POKE_SIDE, since: at, until: at + POKE_REACTION_MS };
+             if (activity?.line !== undefined && activity.line !== '') {
+                 bubbleRef.current = { text: activity.line, kind: 'poke', until: at + POKE_MS };
+             }
+@@ -368,6 +409,13 @@ export function CompanionPanel({ width, height, focused, visible }) {
+         lastInputAtRef.current = at;
+         heartPendingRef.current = true;
+         clicksRef.current = [...clicksRef.current.filter(ts => ts > at - TICKLE_WINDOW_MS), at];
++        if (isGemini) {
++            const rapid = clicksRef.current.length >= TICKLE_MIN_CLICKS;
++            if (rapid) clicksRef.current = [];
++            overrideRef.current = geminiReaction(rapid ? 'tickle' : side, at, rapid ? TICKLE_WINDOW_MS : POKE_REACTION_MS);
++            bump();
++            return;
++        }
+         overrideRef.current = clicksRef.current.length >= TICKLE_MIN_CLICKS
+             ? { semantic: 'tickle', since: at, until: at + TICKLE_WINDOW_MS }
+             : { semantic: side, since: at, until: at + POKE_REACTION_MS };
+diff --git a/lib/types/components/sidePanel/companion/SplashMascot.d.ts b/lib/types/components/sidePanel/companion/SplashMascot.d.ts
+index c7dbef3..c53e6c7 100644
+--- a/lib/types/components/sidePanel/companion/SplashMascot.d.ts
++++ b/lib/types/components/sidePanel/companion/SplashMascot.d.ts
+@@ -20,10 +20,11 @@
+  */
+ import React from 'react';
+ import { type SplashImageBox } from '../../splashArtRows.js';
+-export type SplashMascotSkin = 'deepy' | 'whaleGirl';
++export type SplashMascotSkin = 'deepy' | 'whaleGirl' | 'gemini';
+ /** 读 companion.skin（LogoV2 的测试缝 prop 优先）；非吉祥物皮肤返回
+  *  undefined（LogoV2 走原鲸鱼/女仆娘路径，零改动）。 */
+ export declare function useSplashMascotSkin(pinned?: string): SplashMascotSkin | undefined;
++export declare function useSplashCompanion(pinned?: string): { mascotSkin: SplashMascotSkin | undefined; backendPetOverride: boolean };
+ /** 图片原生尺寸的紧凑槽；仅启动页使用，协议/像元/素材未就绪时保持原回退。 */
+ export declare function useSplashMascotBox(skin: SplashMascotSkin | undefined, compact: boolean): SplashImageBox | undefined;
+ /** 启动页吉祥物本体：按 skin 渲染动画，点击交互（poke/连点）在内层盒。 */
+diff --git a/lib/types/components/sidePanel/companion/SplashMascot.js b/lib/types/components/sidePanel/companion/SplashMascot.js
+index c5c4783..2857551 100644
+--- a/lib/types/components/sidePanel/companion/SplashMascot.js
++++ b/lib/types/components/sidePanel/companion/SplashMascot.js
+@@ -1,3 +1,4 @@
++import { geminiAdvanceReaction, geminiDelay, geminiReaction, loadGeminiKit } from './geminiPolicy.js';
+ import { jsx as _jsx } from "react/jsx-runtime";
+ /**
+  * 启动页吉祥物（LogoV2 艺术槽，2026-10 复用轮）。
+@@ -23,9 +24,9 @@ import React from 'react';
+ import { Box, useTerminalImages, useTerminalImageCellSize, useTerminalImageProtocol } from '../../../ui.js';
+ import { fitSplashImageBox } from '../../splashArtRows.js';
+ import { loadWhaleGirlKit } from './deepy.js';
+-import { getCompanionSkin, subscribeCompanionSkin } from '../../../tuiDisplayPrefs.js';
++import { getEffectiveCompanion, subscribeEffectiveCompanion } from '../../../tuiDisplayPrefs.js';
+ import { TICKLE_MIN_CLICKS, TICKLE_WINDOW_MS } from './mood.js';
+-import { DeepySkin, WhaleGirlSkin, loadWhaleGirlImageKit } from './skins.js';
++import { DeepySkin, GeminiSkin, loadGeminiImageKit, WhaleGirlSkin, loadWhaleGirlImageKit } from './skins.js';
+ import { initialCompanionPoseState, nextCompanionPoseStep } from './pose.js';
+ /** 点击反应档时长：poke 帧表一轮 2100ms，取头段（同 CompanionPanel 的口径）。 */
+ const SPLASH_POKE_MS = 1400;
+@@ -37,20 +38,25 @@ const SPLASH_TICK_MS = 160;
+ const SPLASH_MASCOT_COLUMNS = 42;
+ /** 读 companion.skin（LogoV2 的测试缝 prop 优先）；非吉祥物皮肤返回
+  *  undefined（LogoV2 走原鲸鱼/女仆娘路径，零改动）。 */
++export function useSplashCompanion(pinned) {
++    const setting = React.useSyncExternalStore(subscribeEffectiveCompanion, getEffectiveCompanion);
++    const id = pinned ?? setting.skin;
++    const mascotSkin = ['deepy', 'whaleGirl', 'gemini'].includes(id) ? id : undefined;
++    return { mascotSkin, backendPetOverride: pinned === undefined && setting.override };
++}
+ export function useSplashMascotSkin(pinned) {
+-    const setting = React.useSyncExternalStore(subscribeCompanionSkin, getCompanionSkin);
+-    const id = pinned ?? setting;
+-    return id === 'deepy' || id === 'whaleGirl' ? id : undefined;
++    return useSplashCompanion(pinned).mascotSkin;
+ }
+ /** 图片原生尺寸的紧凑槽；仅启动页使用，协议/像元/素材未就绪时保持原回退。 */
+ export function useSplashMascotBox(skin, compact) {
+     // 高度降级可能暂时撤掉吉祥物，因此能力探测不能只依赖吉祥物挂载。
+-    const available = useTerminalImages(compact && skin === 'whaleGirl');
++    const available = useTerminalImages(compact && (skin === 'gemini' || skin === 'whaleGirl'));
+     const protocol = useTerminalImageProtocol();
+     const cell = useTerminalImageCellSize();
+-    const canvas = available && compact && skin === 'whaleGirl' && cell !== undefined
+-        && (protocol === 'kitty' || protocol === 'sixel') && loadWhaleGirlKit() !== undefined
+-        ? loadWhaleGirlImageKit()?.canvas : undefined;
++    const canvas = available && compact && cell !== undefined && (protocol === 'kitty' || protocol === 'sixel')
++        ? skin === 'gemini' ? (loadGeminiKit() ? loadGeminiImageKit()?.canvas : undefined)
++            : skin === 'whaleGirl' && loadWhaleGirlKit() ? loadWhaleGirlImageKit()?.canvas : undefined
++        : undefined;
+     return React.useMemo(() => canvas !== undefined && cell !== undefined
+         ? fitSplashImageBox(canvas, cell, WhaleGirlSkin.cells) : undefined, [canvas, cell]);
+ }
+@@ -68,14 +74,30 @@ export function SplashMascot({ skin, active, imageBox }) {
+     // 皮肤在 semantic 有效时不读 mood/heart 层——只需一个合法 pose 形状。
+     const [pose] = React.useState(() => nextCompanionPoseStep(initialCompanionPoseState(Date.now()), { mood: 'idle', heart: false }, Date.now()).pose);
+     React.useEffect(() => {
+-        if (!active)
++        if (!active || skin === 'gemini')
+             return;
+         const id = setInterval(() => { setBump(previous => previous + 1); }, SPLASH_TICK_MS);
+         id.unref?.();
+         return () => { clearInterval(id); };
+-    }, [active]);
++    }, [active, skin]);
++    const previousSkin = React.useRef(skin);
++    if (previousSkin.current !== skin && (skin === 'gemini' || previousSkin.current === 'gemini')) {
++        overrideRef.current = undefined;
++        heartAfterOverrideRef.current = false;
++        clicksRef.current = [];
++        mountedAtRef.current = Date.now();
++    }
++    previousSkin.current = skin;
++    if (skin === 'gemini' && !active) {
++        overrideRef.current = undefined;
++        heartAfterOverrideRef.current = false;
++        clicksRef.current = [];
++    }
+     const now = active ? Date.now() : mountedAtRef.current;
+-    if (overrideRef.current !== undefined && overrideRef.current.until <= now) {
++    if (skin === 'gemini') {
++        overrideRef.current = geminiAdvanceReaction(overrideRef.current, now, SPLASH_HEART_MS);
++    }
++    else if (overrideRef.current !== undefined && overrideRef.current.until <= now) {
+         const heartNext = heartAfterOverrideRef.current;
+         overrideRef.current = undefined;
+         heartAfterOverrideRef.current = false;
+@@ -86,6 +108,14 @@ export function SplashMascot({ skin, active, imageBox }) {
+     const override = overrideRef.current;
+     const animationSemantic = override?.semantic ?? 'idle';
+     const animSince = override?.since ?? mountedAtRef.current;
++    const nextGeminiFrame = skin === 'gemini' && active ?
++        Math.min(geminiDelay(animationSemantic, now - animSince), override ? Math.max(1, override.until - now) : Infinity) : Infinity;
++    React.useEffect(() => {
++        if (!Number.isFinite(nextGeminiFrame)) return;
++        const timer = setTimeout(() => setBump(n => n + 1), nextGeminiFrame);
++        timer.unref?.();
++        return () => clearTimeout(timer);
++    }, [nextGeminiFrame, skin === 'gemini' && active ? now : 0]);
+     const input = {
+         pose,
+         moodSince: animSince,
+@@ -105,6 +135,12 @@ export function SplashMascot({ skin, active, imageBox }) {
+                 const rapid = clicksRef.current.length >= TICKLE_MIN_CLICKS;
+                 if (rapid)
+                     clicksRef.current = [];
++                if (skin === 'gemini') {
++                    const side = event.localCol < (imageBox?.columns ?? GeminiSkin.cells.columns) / 2 ? 'poke-left' : 'poke-right';
++                    overrideRef.current = geminiReaction(rapid ? 'tickle' : side, at, rapid ? TICKLE_WINDOW_MS : SPLASH_POKE_MS);
++                    setBump(n => n + 1);
++                    return;
++                }
+                 overrideRef.current = rapid
+                     ? { semantic: 'tickle', since: at, until: at + TICKLE_WINDOW_MS }
+                     : {
+@@ -114,5 +150,5 @@ export function SplashMascot({ skin, active, imageBox }) {
+                     };
+                 heartAfterOverrideRef.current = !rapid && skin === 'whaleGirl';
+                 setBump(previous => previous + 1);
+-            }, children: skin === 'deepy' ? DeepySkin.render(input) : WhaleGirlSkin.render(input) }) }));
++            }, children: skin === 'gemini' ? GeminiSkin.render(input) : skin === 'deepy' ? DeepySkin.render(input) : WhaleGirlSkin.render(input) }) }));
+ }
+diff --git a/lib/types/components/sidePanel/companion/geminiPolicy.js b/lib/types/components/sidePanel/companion/geminiPolicy.js
+new file mode 100644
+index 0000000..a35627d
+--- /dev/null
++++ b/lib/types/components/sidePanel/companion/geminiPolicy.js
+@@ -0,0 +1,96 @@
++/**
++ * The Gemini animations use the host's semantic keys and one shared
++ * elapsed-time clock for both render tracks. No timers are owned here.
++ */
++import { readFileSync } from 'node:fs';
++import { loadSpriteKit } from './deepy.js';
++
++const assets = '../../../../../assets/gemini/';
++const keys = [
++    'idle', 'idle-look', 'idle-spout', 'swim', 'thinking', 'typing', 'music', 'conducting',
++    'building', 'compacting', 'carrying', 'notification', 'error', 'happy', 'thumbs-up',
++    'sleeping', 'waking', 'poke-left', 'poke-right', 'smile-hearts', 'tickle', 'drag',
++];
++const cache = { kit: null };
++let catalog = null;
++
++export function loadGeminiCatalog() {
++    if (catalog !== null)
++        return catalog;
++    try {
++        const kit = loadSpriteKit([assets + 'frames.json'], cache, 'gemini');
++        const actions = JSON.parse(readFileSync(new URL(assets + 'actions.json', import.meta.url), 'utf8'));
++        if (kit === undefined || Object.keys(kit.byKey).length !== keys.length || Object.keys(actions).length !== keys.length)
++            throw new Error('Gemini action set is incomplete');
++        for (const key of keys) {
++            const a = kit.byKey[key], mode = actions[key];
++            if (!a?.frames.length || !a.frames.every(f => Number.isSafeInteger(f.dur) && f.dur > 0)
++                || mode?.totalMs !== a.totalMs || (mode.playback !== 'once' && mode.playback !== 'loop'))
++                throw new Error('Invalid Gemini action: ' + key);
++        }
++        catalog = { kit, actions };
++    }
++    catch {
++        // Invalid/missing letters make the actor unavailable; the choice
++        // resolver can keep the inherited skin and art without a blank slot.
++        catalog = undefined;
++    }
++    return catalog;
++}
++
++export const loadGeminiKit = () => loadGeminiCatalog()?.kit;
++export const geminiSupportsSkin = () => loadGeminiCatalog() !== undefined;
++
++export function geminiAnimationKey(semantic) {
++    if (semantic === 'look')
++        return 'idle-look';
++    if (semantic === 'notice')
++        return 'idle-spout';
++    return keys.includes(semantic) ? semantic : 'idle';
++}
++
++export function geminiFramePosition(animation, elapsed, playback) {
++    const last = animation.frames.length - 1;
++    const time = Math.max(0, elapsed);
++    if (playback === 'once' && time >= animation.totalMs)
++        return { index: last, delay: Infinity };
++    let rest = time % animation.totalMs;
++    for (const [index, frame] of animation.frames.entries()) {
++        if (rest < frame.dur)
++            return { index, delay: Math.max(1, frame.dur - rest) };
++        rest -= frame.dur;
++    }
++    return { index: last, delay: Infinity };
++}
++
++export function geminiSelectFrame(animation, elapsed) {
++    return geminiFramePosition(animation, elapsed, loadGeminiCatalog()?.actions[animation.key]?.playback).index;
++}
++
++export function geminiDelay(key, elapsed) {
++    const { kit, actions } = loadGeminiCatalog() ?? {};
++    const animation = kit?.byKey[key];
++    return animation === undefined ? Infinity : geminiFramePosition(animation, elapsed, actions[key].playback).delay;
++}
++
++export function geminiDuration(key, fallback) {
++    return loadGeminiCatalog()?.actions[key]?.totalMs ?? fallback;
++}
++
++export function geminiReaction(key, since, fallback) {
++    return { semantic: key, since, until: since + geminiDuration(key, fallback) };
++}
++
++export function geminiAdvanceReaction(reaction, now, heartsMs) {
++    if (!reaction || now < reaction.until)
++        return reaction;
++    if (reaction.semantic !== 'poke-left' && reaction.semantic !== 'poke-right')
++        return undefined;
++    const next = geminiReaction('smile-hearts', reaction.until, heartsMs);
++    return now < next.until ? next : undefined;
++}
++
++export function geminiPreemptsReaction(target, reaction) {
++    return (target === 'notification' || target === 'error' || target === 'compacting')
++        && ['poke-left', 'poke-right', 'smile-hearts', 'tickle'].includes(reaction?.semantic);
++}
+diff --git a/lib/types/components/sidePanel/companion/skins.d.ts b/lib/types/components/sidePanel/companion/skins.d.ts
+index 157bff6..0629c66 100644
+--- a/lib/types/components/sidePanel/companion/skins.d.ts
++++ b/lib/types/components/sidePanel/companion/skins.d.ts
+@@ -76,6 +76,8 @@ export declare function whaleGirlAnimationKey(mood: CompanionMood, heart: number
+  *  或保持上一帧。导出供回归直接测这条链。 */
+ export declare function resolveWhaleGirlAnimationKey(pose: CompanionPose, animationSemantic: string | undefined, hasKey: (key: string) => boolean): string | undefined;
+ export declare const WhaleGirlSkin: CompanionSkin;
++export declare const GeminiSkin: CompanionSkin;
++export declare function loadGeminiImageKit(): WhaleGirlImageKit | undefined;
+ interface WhaleGirlImageTiming {
+     readonly dur: number;
+     readonly file: string;
+diff --git a/lib/types/components/sidePanel/companion/skins.js b/lib/types/components/sidePanel/companion/skins.js
+index bb27f04..c4d10bf 100644
+--- a/lib/types/components/sidePanel/companion/skins.js
++++ b/lib/types/components/sidePanel/companion/skins.js
+@@ -1,3 +1,5 @@
++import { loadGeminiKit, geminiSelectFrame } from './geminiPolicy.js';
++import { createSpriteSkin } from './spriteSkin.js';
+ import { jsx as _jsx } from "react/jsx-runtime";
+ /**
+  * Companion 皮肤接口与注册表（设计分文档 §3 + v2.1）：皮肤拿到的是
+@@ -50,550 +52,13 @@ export const DeepySkin = {
+  * 1.75–2.13 内精确或差 1–2 格；字母轨 42 宽帧串的本体 ~21–25 格也装得下，
+  * 两侧透明衬垫溢出盒外不可见）。字母轨的 8–11 格固有边距需另产裁边素材
+  * 才能治，本轮留档不做。 */
+-const WHALE_GIRL_CELLS = Object.freeze({ columns: 31, rows: 15 });
+-/** 图像轨单元格盒列数：15 行预算 × 像元比 × 帧宽高比，钳在 cells.columns
+- * （超出时调用方按 contain 收行）。导出供回归锁「cells 常量 == 常见像元比
+- * 下的实际图宽」（空气墙契约：盒宽=图宽）。 */
+-export function whaleGirlImageBoxColumns(cell, frameRatio) {
+-    const cellRatio = cell.height / cell.width;
+-    return Math.max(1, Math.min(WHALE_GIRL_CELLS.columns, Math.round(cellRatio * WHALE_GIRL_CELLS.rows * frameRatio)));
+-}
+-/** 鲸娘心情表：deepy 表同名直通，只有 celebrate 换成鲸娘独有的
+- *  thumbs-up（happy/庆祝，success 通知反应同源）。 */
+-const WHALE_GIRL_MOOD_ANIMATION = {
+-    ...DEEPY_MOOD_ANIMATION,
+-    celebrate: 'thumbs-up',
+-};
+-/** 鲸娘语义表：deepy 的语义/上下文/互动/通知反应表 key 同名直通，仅
+- *  notice（悬停本体）→ smile-hearts、happy（庆祝）→ thumbs-up 两处覆盖。
+- *  回归用它做全语义覆盖检查；运行时 CompanionPanel 把裁决出的
+- *  animationSemantic 交给每个皮肤的 render（WhaleGirlSkin.semanticMap
+- *  即本表），互动/通知反应因此同样能到非 deepy 皮肤。 */
+-export const WHALE_GIRL_SEMANTIC_ANIMATION = {
+-    ...DEEPY_SEMANTIC_ANIMATION,
+-    notice: 'smile-hearts',
+-    happy: 'thumbs-up',
+-};
+-/** pose → 鲸娘动画键（纯函数，回归直接测）：亲昵互动（爱心 pass，
+- *  CompanionPanel 在点击宠物 / Enter 戳一戳时 arm）优先于心情。 */
+-export function whaleGirlAnimationKey(mood, heart) {
+-    if (heart > 0)
+-        return 'smile-hearts';
+-    return WHALE_GIRL_MOOD_ANIMATION[mood] ?? 'idle';
+-}
+-/** 鲸娘（用户提供的表情包，assets/whaleGirl/frames.json）：渲染路径照
+- *  DeepySkin（kit → 动画 → frameAt 选帧 → 半块行）。动画键优先级：
+- *  animationSemantic（互动/通知反应层，经 semanticMap 落点）> 爱心 pass
+- *  > 心情层（whaleGirlAnimationKey 原契约不变）；缺 kit / 缺帧回退
+- *  DeepySkin.render（再缺则由它落到 WhaleSkin）。 */
+-/** 鲸娘对 deepy 规范键的落点：只声明两处覆盖（悬停碰本体 deepy 会喷水，
+- *  鲸娘换成 smile-hearts；庆祝 happy → 独有 thumbs-up），其余 18 键与
+-  deepy 同名直通（鲸娘 kit 键集同源）。semantic 空间的完整覆盖表见
+-  WHALE_GIRL_SEMANTIC_ANIMATION（回归用）。 */
+-const WHALE_GIRL_KEY_ANIMATION = {
+-    'idle-spout': 'smile-hearts',
+-    'happy': 'thumbs-up',
+-};
+-/** 鲸娘动画键裁决（字母格与图像两条路径共用）：semanticMap 映射 >
+- *  爱心 pass > 心情层，与 whaleGirlAnimationKey 的优先级一致。每个候选
+- *  都要过 hasKey（在素材包里、没解码失败过），不过就沿链往下：semantic
+- *  → heart → mood → idle；全部不可用返回 undefined，由调用方退字母格
+- *  或保持上一帧。导出供回归直接测这条链。 */
+-export function resolveWhaleGirlAnimationKey(pose, animationSemantic, hasKey) {
+-    if (animationSemantic !== undefined) {
+-        const semanticKey = WHALE_GIRL_KEY_ANIMATION[animationSemantic] ?? animationSemantic;
+-        if (hasKey(semanticKey))
+-            return semanticKey;
+-    }
+-    if (pose.heart > 0 && hasKey('smile-hearts'))
+-        return 'smile-hearts';
+-    const moodKey = WHALE_GIRL_MOOD_ANIMATION[pose.mood] ?? 'idle';
+-    if (hasKey(moodKey))
+-        return moodKey;
+-    const idleKey = WHALE_GIRL_MOOD_ANIMATION.idle;
+-    if (hasKey(idleKey))
+-        return idleKey;
+-    return undefined;
+-}
+-/** 字母轨开窗（2026-10 空气墙修复配套）：42 格帧串的全部美术落在
+- * [5,35] 共 31 列（实测 267 帧，两侧是构建 contain 的透明衬垫 '.'）——
+- * 与图像轨 31 列盒同宽。开窗后字母轨也装进 cells.columns，盒贴边即
+- * （最宽姿势的）美术贴边；各姿势自身更窄的边距是美术固有，同 deepy。
+- * 回归锁「全部帧内容 ⊆ [5, 5+31)」防素材更新后悄悄越窗被截。 */
+-const WHALE_GIRL_LETTER_WINDOW_START = 5;
+-const whaleGirlWindowCache = new Map();
+-function renderedWhaleGirlWindowRows(kit, key, imageBox) {
+-    const animation = kit.byKey[key];
+-    if (animation === undefined)
+-        return undefined;
+-    const cacheKey = kit.id + ':window:' + key + (imageBox === undefined ? '' : `:${imageBox.columns}x${imageBox.rows}`);
+-    let rendered = whaleGirlWindowCache.get(cacheKey);
+-    if (rendered === undefined) {
+-        rendered = Object.freeze(animation.frames.map(frame => {
+-            if (imageBox === undefined)
+-                return renderSpriteRows(frame.rows.map(row => row.slice(WHALE_GIRL_LETTER_WINDOW_START, WHALE_GIRL_LETTER_WINDOW_START + WHALE_GIRL_CELLS.columns)), kit.palette);
+-            // 解码前/失败时整幅字母格 contain 进同一个槽，不裁掉头脚，也不换画跳高。
+-            const pixelRows = imageBox.rows * 2;
+-            const scale = Math.min(imageBox.columns / WHALE_GIRL_CELLS.columns, pixelRows / kit.rows);
+-            const width = Math.max(1, Math.floor(WHALE_GIRL_CELLS.columns * scale));
+-            const height = Math.max(1, Math.floor(kit.rows * scale));
+-            const left = Math.floor((imageBox.columns - width) / 2);
+-            const top = Math.floor((pixelRows - height) / 2);
+-            return renderCellRows(imageBox.columns, pixelRows, (x, y) => {
+-                if (x < left || x >= left + width || y < top || y >= top + height)
+-                    return undefined;
+-                const sx = Math.min(WHALE_GIRL_CELLS.columns - 1, Math.floor((x - left) * WHALE_GIRL_CELLS.columns / width));
+-                const sy = Math.min(kit.rows - 1, Math.floor((y - top) * kit.rows / height));
+-                return kit.palette[frame.rows[sy]?.[sx + WHALE_GIRL_LETTER_WINDOW_START] ?? '.'];
+-            });
+-        }));
+-        whaleGirlWindowCache.set(cacheKey, rendered);
+-    }
+-    return rendered;
+-}
+-/** 鲸娘字母格渲染（31 列开窗半块路径，供两条渲染路径复用）：
+- *  缺 kit / 缺预渲染 → DeepySkin.render（再缺由它落到 WhaleSkin）。 */
+-function renderWhaleGirlLetterGrid(input) {
+-    const { pose, moodSince, now, animationSemantic } = input;
+-    const kit = loadWhaleGirlKit();
+-    if (kit === undefined)
+-        return DeepySkin.render({ ...input, width: WHALE_GIRL_CELLS.columns });
+-    // 字母轨只要求 kit 里有这个动画；一个都没有时退 DeepySkin，与缺帧
+-    // 回退同一出口。
+-    const animationKey = resolveWhaleGirlAnimationKey(pose, animationSemantic, key => kit.byKey[key] !== undefined);
+-    if (animationKey === undefined)
+-        return DeepySkin.render({ ...input, width: WHALE_GIRL_CELLS.columns });
+-    const rendered = renderedWhaleGirlWindowRows(kit, animationKey, input.imageBox);
+-    const animation = kit.byKey[animationKey];
+-    if (rendered === undefined || animation === undefined) {
+-        return DeepySkin.render({ ...input, width: WHALE_GIRL_CELLS.columns });
+-    }
+-    const frameIndex = frameAt(animation, now - moodSince);
+-    const rows = rendered[frameIndex] ?? rendered[0] ?? [];
+-    return (_jsx(Box, { flexDirection: "column", flexShrink: 0, width: input.imageBox?.columns ?? WHALE_GIRL_CELLS.columns, children: rows.map((row, index) => (_jsx(Text, { wrap: "truncate-end", children: row }, index))) }));
+-}
+-export const WhaleGirlSkin = {
+-    id: 'whaleGirl',
+-    title: '鲸娘',
+-    cells: WHALE_GIRL_CELLS,
+-    /** optional：有终端图像协议（kitty/sixel）时用原生像素帧，无协议退
+-     *  字母格（renderWhaleGirlLetterGrid，老路径原样保留）。 */
+-    graphics: 'optional',
+-    semanticMap: WHALE_GIRL_KEY_ANIMATION,
+-    render(input) {
+-        // kit 缺失的回退必须发生在 render() 本体（同步），老回归契约如此。
+-        if (loadWhaleGirlKit() === undefined)
+-            return DeepySkin.render({ ...input, width: WHALE_GIRL_CELLS.columns });
+-        // render 是普通函数，hooks 落在真正的组件里（无协议环境 mount 后
+-        // 立即退回字母格，行为与旧版逐字节一致）。
+-        return _jsx(WhaleGirlImageSkin, { ...input });
+-    },
+-};
+-/** 与 deepy.ts 同一套层级教训：源码层 4 层 + 编译层（lib/types）5 层。 */
+-const WHALE_GIRL_IMG_DIR_CANDIDATES = [
+-    '../../../../assets/whaleGirl/img',
+-    '../../../../../assets/whaleGirl/img',
+-];
+-let whaleGirlImageKitCache;
+-/** 校验即拒绝（同 loadSpriteKit 契约）：timings.json 形状不对 → 整份
+- *  视为不可用，图像路径整体退字母格，不渲染半成品。 */
+-function parseWhaleGirlImageKit(raw, dir) {
+-    if (raw === null || typeof raw !== 'object' || Array.isArray(raw))
+-        return undefined;
+-    const byKey = {};
+-    for (const [key, value] of Object.entries(raw)) {
+-        if (!Array.isArray(value) || value.length === 0)
+-            return undefined;
+-        const frames = [];
+-        for (const entry of value) {
+-            if (typeof entry?.dur !== 'number' || !(entry.dur > 0))
+-                return undefined;
+-            if (typeof entry.file !== 'string' || !/^[0-9]{2}\.png$/.test(entry.file))
+-                return undefined;
+-            frames.push({ dur: entry.dur, file: entry.file });
+-        }
+-        byKey[key] = { key, frames, totalMs: frames.reduce((sum, frame) => sum + frame.dur, 0) };
+-    }
+-    return { dir, byKey };
+-}
+-/** 惰性加载 + 缓存图像 timings；缺失/校验失败返回 undefined（退字母格）。 */
+-export function loadWhaleGirlImageKit() {
+-    if (whaleGirlImageKitCache !== undefined)
+-        return whaleGirlImageKitCache ?? undefined;
+-    for (const candidate of WHALE_GIRL_IMG_DIR_CANDIDATES) {
+-        try {
+-            const dir = fileURLToPath(new URL(candidate, import.meta.url));
+-            if (!existsSync(join(dir, 'timings.json')))
+-                continue;
+-            const kit = parseWhaleGirlImageKit(JSON.parse(readFileSync(join(dir, 'timings.json'), 'utf8')), dir);
+-            if (kit !== undefined) {
+-                const first = kit.byKey.idle?.frames[0];
+-                let canvas;
+-                if (first !== undefined) {
+-                    try {
+-                        const png = readFileSync(join(dir, 'idle', first.file));
+-                        if (png.length >= 24 && png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+-                            && png.toString('ascii', 12, 16) === 'IHDR') {
+-                            const width = png.readUInt32BE(16);
+-                            const height = png.readUInt32BE(20);
+-                            if (width > 0 && height > 0 && width <= 4096 && height <= 4096)
+-                                canvas = { width, height };
+-                        }
+-                    }
+-                    catch {
+-                        // 缺失/坏帧仍走原来的异步解码失败与字母格回退。
+-                    }
+-                }
+-                whaleGirlImageKitCache = { ...kit, ...(canvas === undefined ? {} : { canvas }) };
+-                return whaleGirlImageKitCache;
+-            }
+-        }
+-        catch {
+-            // 下一个候选路径
+-        }
+-    }
+-    whaleGirlImageKitCache = null;
+-    return undefined;
+-}
+-/** elapsed 时刻应显示第几帧：dur 累加取模，与 deepy.frameAt 同语义
+- *  （确定性、可单测；回归里与 frameAt 逐 elapsed 比对）。 */
+-export function whaleGirlImageFrameIndexAt(animation, elapsedMs) {
+-    if (animation.frames.length === 0 || animation.totalMs <= 0)
+-        return 0;
+-    let remainder = Math.max(0, elapsedMs) % animation.totalMs;
+-    for (let index = 0; index < animation.frames.length; index += 1) {
+-        const frame = animation.frames[index];
+-        if (remainder < frame.dur)
+-            return index;
+-        remainder -= frame.dur;
+-    }
+-    return animation.frames.length - 1;
+-}
+-/** 已解码动画的 LRU（Map 迭代序 = 最近使用序）；失败集合防止坏动画
+- *  每帧重试。字节上限防 267 帧全量常驻（全解约 92.6MB RGBA）。
+- *  提交后的使用经 touchDecodedAnimation 刷新迭代序；写入和驱逐会发布
+- *  revision，消费者订阅后能发现自己的键被挤出并重新解码。 */
+-const decodedImageAnimations = new Map();
+-const failedImageAnimations = new Set();
+-let decodedImageBytes = 0;
+-const DECODED_IMAGE_BYTES_CAP = 32 * 1024 * 1024;
+-/** 缓存写入/驱逐的版本号。快照是原始 number，Object.is 比较稳定。
+- *  touch 只改迭代序、不发布：它在 commit 后运行，发布会让每次 commit
+- *  再触发一次渲染。 */
+-let decodedImageCacheRevision = 0;
+-const decodedImageCacheListeners = new Set();
+-function publishDecodedImageCacheChange() {
+-    decodedImageCacheRevision += 1;
+-    for (const listener of [...decodedImageCacheListeners])
+-        listener();
+-}
+-/** 订阅缓存写入/驱逐（uSES 的 subscribe 面；回归直接用它观测 revision）。 */
+-export function subscribeDecodedImageCache(listener) {
+-    decodedImageCacheListeners.add(listener);
+-    return () => { decodedImageCacheListeners.delete(listener); };
+-}
+-/** 把命中的键移到最近使用位。只改迭代序，不动键集和字节数，所以不
+- *  发布 revision。只在 commit 后的 effect 里调用；键不在缓存时 no-op。 */
+-function touchDecodedAnimation(key) {
+-    const frames = decodedImageAnimations.get(key);
+-    if (frames === undefined)
+-        return;
+-    decodedImageAnimations.delete(key);
+-    decodedImageAnimations.set(key, frames);
+-}
+-/** 解码一个动画的全部帧（顺序、确定性）；任一帧失败 → 整个动画 undefined。 */
+-async function decodeWhaleGirlAnimation(dir, animation) {
+-    try {
+-        const sharp = await loadSharp();
+-        if (sharp === undefined)
+-            return undefined;
+-        const frames = [];
+-        for (const frame of animation.frames) {
+-            const decoded = await sharp(readFileSync(join(dir, animation.key, frame.file)), { failOn: 'error' })
+-                .ensureAlpha()
+-                .raw()
+-                .toBuffer({ resolveWithObject: true });
+-            if (decoded.info.channels !== 4
+-                || decoded.data.byteLength !== decoded.info.width * decoded.info.height * 4)
+-                return undefined;
+-            frames.push({
+-                data: new Uint8Array(decoded.data.buffer, decoded.data.byteOffset, decoded.data.byteLength),
+-                width: decoded.info.width,
+-                height: decoded.info.height,
+-            });
+-        }
+-        return frames;
+-    }
+-    catch {
+-        return undefined;
+-    }
+-}
+-function rememberDecodedAnimation(key, frames) {
+-    const previous = decodedImageAnimations.get(key);
+-    if (previous !== undefined) {
+-        decodedImageAnimations.delete(key);
+-        decodedImageBytes -= previous.reduce((sum, frame) => sum + frame.data.byteLength, 0);
+-    }
+-    decodedImageAnimations.set(key, frames);
+-    decodedImageBytes += frames.reduce((sum, frame) => sum + frame.data.byteLength, 0);
+-    while (decodedImageBytes > DECODED_IMAGE_BYTES_CAP && decodedImageAnimations.size > 1) {
+-        const oldest = decodedImageAnimations.keys().next().value;
+-        if (oldest === undefined)
+-            break;
+-        const evicted = decodedImageAnimations.get(oldest);
+-        decodedImageAnimations.delete(oldest);
+-        decodedImageBytes -= evicted?.reduce((sum, frame) => sum + frame.data.byteLength, 0) ?? 0;
+-    }
+-    // 插入、替换、驱逐都改变了消费者可见的内容：发布 revision，让键被
+-    // 挤出的消费者重跑解码 effect。
+-    publishDecodedImageCacheChange();
+-}
+-/** 预热键集：面板可见且动画时钟在走时，把常用互动键（idle + poke
+- *  左/右 + smile-hearts）提前异步解码进 LRU，换键时少等一次解码。
+- *  导出供回归检查。 */
+-export const WHALE_GIRL_PREHEAT_KEYS = [
+-    WHALE_GIRL_MOOD_ANIMATION.idle,
+-    'poke-left',
+-    'poke-right',
+-    'smile-hearts',
+-];
+-/** 在途解码登记（同键去重：活跃解码路径与预热共用一个 Promise）。 */
+-const inflightImageDecodes = new Map();
+-/** 解码发起次数，只在新建在途 Promise 时递增。回归用它检查失败键不
+- *  按 tick 重试、同键并发只解一次、驱逐后的恢复有界。 */
+-let whaleGirlDecodeRequestCount = 0;
+-/** 测试重置时递增：重置前发起、重置后才完成的解码不得写进新缓存。 */
+-let decodeGeneration = 0;
+-/** 解码一个动画并入库：成功进 LRU，失败进失败集（之后的裁决会跳过
+- *  这个键）；同键并发请求共用在途 Promise。永不 reject，也不直接触发
+- *  React 更新。 */
+-function requestWhaleGirlAnimationFrames(kit, key) {
+-    const inflight = inflightImageDecodes.get(key);
+-    if (inflight !== undefined)
+-        return inflight;
+-    whaleGirlDecodeRequestCount += 1;
+-    const generation = decodeGeneration;
+-    const pending = decodeWhaleGirlAnimation(kit.dir, kit.byKey[key])
+-        .then(frames => {
+-        if (generation !== decodeGeneration)
+-            return frames;
+-        inflightImageDecodes.delete(key);
+-        if (frames === undefined)
+-            failedImageAnimations.add(key);
+-        else
+-            rememberDecodedAnimation(key, frames);
+-        return frames;
+-    })
+-        .catch(() => {
+-        if (generation !== decodeGeneration)
+-            return undefined;
+-        inflightImageDecodes.delete(key);
+-        failedImageAnimations.add(key);
+-        return undefined;
+-    });
+-    inflightImageDecodes.set(key, pending);
+-    return pending;
+-}
+-/** 预热一个键（幂等：缺键/已缓存/已失败跳过）；失败静默——与按需解码
+- *  同语义地进失败集，不闪不响。 */
+-function preheatWhaleGirlAnimation(kit, key) {
+-    if (kit.byKey[key] === undefined)
+-        return;
+-    if (decodedImageAnimations.has(key) || failedImageAnimations.has(key))
+-        return;
+-    void requestWhaleGirlAnimationFrames(kit, key);
+-}
+-/** 测试观测点：当前进程已解码了哪些动画（惰性解码断言用）。 */
+-export function whaleGirlDecodedAnimationKeys() {
+-    return [...decodedImageAnimations.keys(), ...failedImageAnimations];
+-}
+-/** 测试接缝：LRU 迭代序（= 最近使用序）。 */
+-export function decodedImageAnimationOrderForTests() {
+-    return [...decodedImageAnimations.keys()];
+-}
+-/** 测试接缝：注入假帧，制造 32MiB 驱逐压力（不触发真实解码）。 */
+-export function injectDecodedAnimationForTests(key, frames) {
+-    rememberDecodedAnimation(key, frames);
+-}
+-/** 测试观测点：解码发起总次数。 */
+-export function whaleGirlDecodeRequestCountForTests() {
+-    return whaleGirlDecodeRequestCount;
+-}
+-/** 测试接缝：登记解码失败键（模拟坏 PNG，不动真实资产）。 */
+-export function injectFailedAnimationForTests(key) {
+-    failedImageAnimations.add(key);
+-}
+-/** 测试接缝：清图像层缓存（timings kit + 已解码动画 + 失败集合 + 字母开窗渲染）。 */
+-export function resetWhaleGirlImageCacheForTests() {
+-    whaleGirlImageKitCache = undefined;
+-    decodedImageAnimations.clear();
+-    failedImageAnimations.clear();
+-    decodedImageBytes = 0;
+-    inflightImageDecodes.clear();
+-    decodeGeneration += 1;
+-    whaleGirlWindowCache.clear();
+-    whaleGirlDecodeRequestCount = 0;
+-    publishDecodedImageCacheChange();
+-}
+-/** 面板可见性门（visible=false 零工作契约）：PanelHost 对非 active 的
+- *  enabled 面板包 display:none 的 Box——沿 DOM 祖先链查它。初始 false，
+- *  布局期更新（不触发额外渲染循环），解码 effect 只在证明可见后开跑。 */
+-function useBoxDisplayed() {
+-    const elementRef = React.useRef(null);
+-    const displayedRef = React.useRef(false);
+-    const [displayed, setDisplayed] = React.useState(false);
+-    const setElement = React.useCallback((element) => { elementRef.current = element; }, []);
+-    React.useLayoutEffect(() => {
+-        let hidden = false;
+-        let node = elementRef.current?.parentNode;
+-        while (node !== undefined && !hidden) {
+-            if (node.style?.display === 'none')
+-                hidden = true;
+-            node = node.parentNode;
+-        }
+-        // 只在值真的变化时 setState。这个无 deps 的 layout effect 每次
+-        // commit 都跑；即使更新器返回原值，enqueue 本身也会计入
+-        // react-reconciler 的 nestedUpdateCount，遇上连续提交（如 /context
+-        // 滚动）会攒到 50 并抛 #185。用 ref 记住上次的值，稳态不入队。
+-        const next = !hidden;
+-        if (displayedRef.current !== next) {
+-            displayedRef.current = next;
+-            setDisplayed(next);
+-        }
+-    });
+-    return [setElement, displayed];
+-}
+-/** 鲸娘图像路径的帧缓存 hook：activeKey 为 undefined（面板不可见/无
+- *  动画）时不做任何事；命中缓存同步返回，未命中异步解码完成后返回。
+- *  缓存 revision 是解码 effect 的依赖：键没变但被预热或别的实例挤出
+- *  缓存时，effect 重跑并重新解码。每次 commit 后刷新当前键的 LRU 位置。
+- *  导出供回归在真渲染器下测试。 */
+-export function useDecodedWhaleGirlFrames(activeKey, kit) {
+-    const [settled, setSettled] = React.useState(undefined);
+-    // 只在缓存写入/驱逐时变化（解码完成或测试注入），稳态不触发渲染。
+-    const cacheRevision = React.useSyncExternalStore(subscribeDecodedImageCache, () => decodedImageCacheRevision);
+-    React.useEffect(() => {
+-        if (activeKey === undefined || kit === undefined)
+-            return;
+-        if (!decodedImageAnimations.has(activeKey) && !failedImageAnimations.has(activeKey)) {
+-            let live = true;
+-            // 与预热共用在途解码；组件已换键或卸载时不 setSettled（预热先完成
+-            // 的话，revision 通知触发的渲染会直接命中缓存）。
+-            void requestWhaleGirlAnimationFrames(kit, activeKey).then(frames => {
+-                if (live && frames !== undefined)
+-                    setSettled({ key: activeKey, frames });
+-            });
+-            return () => { live = false; };
+-        }
+-        return;
+-    }, [activeKey, kit, cacheRevision]);
+-    // 每次 commit 刷新当前键的 LRU 位置；键不在缓存或为 undefined 时 no-op。
+-    React.useLayoutEffect(() => {
+-        if (activeKey !== undefined)
+-            touchDecodedAnimation(activeKey);
+-    });
+-    const cached = activeKey !== undefined ? decodedImageAnimations.get(activeKey) : undefined;
+-    if (cached !== undefined)
+-        return cached;
+-    return settled !== undefined && settled.key === activeKey ? settled.frames : undefined;
+-}
+-/** 协议裁决层：render() 只产出本组件，hooks 全部在这里落地。 */
+-function WhaleGirlImageSkin(input) {
+-    // 请求能力探测（无协议终端 probe 一次即回落，不再打扰）。
+-    useTerminalImages(true);
+-    const protocol = useTerminalImageProtocol();
+-    if (protocol !== 'kitty' && protocol !== 'sixel')
+-        return renderWhaleGirlLetterGrid(input);
+-    return _jsx(WhaleGirlRasterSkin, { ...input });
+-}
+-/** 保持上一帧的 hook：render 把本次候选图像交进来，没有候选时返回上一
+- *  次已提交的图像。「上一帧」和「是否显示过」只在 commit 后的 layout
+- *  effect 里写，被放弃的 concurrent render 不会改动它们。保持期间返回
+- *  同一个元素引用，逐 tick 重渲染不会重画子树。返回 [要显示的节点,
+- *  是否显示过]；节点为 undefined 表示从未显示过（调用方画字母格）。
+- *  导出供回归在 ConcurrentRoot 下测试。 */
+-export function useHeldCommittedImage(candidate) {
+-    const everCommittedRef = React.useRef(false);
+-    const heldCommittedRef = React.useRef(undefined);
+-    React.useLayoutEffect(() => {
+-        if (candidate === undefined)
+-            return;
+-        heldCommittedRef.current = candidate;
+-        everCommittedRef.current = true;
+-    });
+-    if (candidate !== undefined)
+-        return [candidate, everCommittedRef.current];
+-    if (!everCommittedRef.current)
+-        return [undefined, false];
+-    return [heldCommittedRef.current, true];
+-}
+-/** 图像渲染层：timings 选帧 + 惰性解码 + 单元格盒（15 行预算、宽按
+- *  帧比例钳 31 列）。解码期间保持上一帧；字母格只在冷启动时出现；常用
+- *  互动键在可见后预热。保持和预热都只看已提交的 render。 */
+-function WhaleGirlRasterSkin(input) {
+-    const { pose, moodSince, now, animationSemantic } = input;
+-    const cellSize = useTerminalImageCellSize();
+-    const imageKit = loadWhaleGirlImageKit();
+-    const [boxRef, displayed] = useBoxDisplayed();
+-    // 解码失败过的键不再被选中（退到心情层的键），失败的互动不会让画面
+-    // 一直停在上一帧。
+-    const animationKey = imageKit !== undefined
+-        ? resolveWhaleGirlAnimationKey(pose, animationSemantic, key => imageKit.byKey[key] !== undefined && !failedImageAnimations.has(key))
+-        : undefined;
+-    // visible=false 零工作：display:none 祖先链未排除前不解码、不订阅时钟。
+-    const frames = useDecodedWhaleGirlFrames(displayed ? animationKey : undefined, imageKit);
+-    const animation = animationKey !== undefined ? imageKit?.byKey[animationKey] : undefined;
+-    // 预热：可见且动画时钟在走时，把常用互动键异步解码进 LRU（不挡首帧，
+-    // 失败静默进失败集）。now 只在 commit 后的 effect 里与上次比较，被
+-    // 放弃的 render 带来的 now 不算。时钟一直不动就是 active=false 的定格
+-    // 态（SplashMascot 停在 idle 第 0 帧），不预热。
+-    const lastNowRef = React.useRef(now);
+-    React.useEffect(() => {
+-        if (now === lastNowRef.current)
+-            return;
+-        lastNowRef.current = now;
+-        if (!displayed || imageKit === undefined)
+-            return;
+-        for (const key of WHALE_GIRL_PREHEAT_KEYS)
+-            preheatWhaleGirlAnimation(imageKit, key);
+-    }, [now, displayed, imageKit]);
+-    // 单元格盒：15 行预算 + 帧自身宽高比（source.width/height，与档位
+-    // 无关）+ 真实像元；宽钳 31 列。8×16 像元下 288px 档
+-    // （301×288）≈ 31 列，渲染层 fit 只降采样，显示恒 1:1 或更密。
+-    // 外层盒恒定 31×15：ref 挂在它上面（可见性门要求任何分支都在树里），
+-    // 字母格→图像切换时面板几何零跳动。
+-    let image;
+-    if (imageKit !== undefined && cellSize !== undefined && frames !== undefined && animation !== undefined) {
+-        const frameIndex = whaleGirlImageFrameIndexAt(animation, now - moodSince);
+-        const source = frames[frameIndex] ?? frames[0];
+-        if (source !== undefined) {
+-            const cellRatio = cellSize.height / cellSize.width;
+-            const frameRatio = source.width / source.height;
+-            // 盒宽=图宽（钳在 cells.columns 内；超宽像元比下 contain 收行不裁剪）。
+-            const rawColumns = Math.max(1, Math.round(cellRatio * WHALE_GIRL_CELLS.rows * frameRatio));
+-            const columns = input.imageBox?.columns ?? whaleGirlImageBoxColumns(cellSize, frameRatio);
+-            const rows = input.imageBox?.rows ?? (rawColumns > columns
+-                ? Math.max(1, Math.round(columns / (cellRatio * frameRatio)))
+-                : WHALE_GIRL_CELLS.rows);
+-            image = (_jsx(Image, { transparent: true, source: source, width: columns, height: rows, alt: "", presentation: "transcript", children: _jsx(Text, { children: Array.from({ length: rows }, () => ' '.repeat(columns)).join('\n') }) }));
+-        }
+-    }
+-    // 本次候选或上一帧；都没有（冷启动）时画字母格。切到还没解码的键时
+-    // 保持上一帧，不闪回字母格。
+-    const [visibleImage] = useHeldCommittedImage(image);
+-    let raster = visibleImage;
+-    // 换键等待解码时保留旧像素，但 resize 后不能把旧的大 Image 盒塞进新小槽。
+-    if (input.imageBox !== undefined && React.isValidElement(raster)
+-        && (raster.props.width !== input.imageBox.columns || raster.props.height !== input.imageBox.rows)) {
+-        const { columns, rows } = input.imageBox;
+-        raster = React.cloneElement(raster, {
+-            width: columns,
+-            height: rows,
+-            children: _jsx(Text, { children: Array.from({ length: rows }, () => ' '.repeat(columns)).join('\n') }),
+-        });
+-    }
+-    return (_jsx(Box, { ref: boxRef, flexDirection: "column", flexShrink: 0, alignItems: "center", justifyContent: "center", width: input.imageBox?.columns ?? WHALE_GIRL_CELLS.columns, height: input.imageBox?.rows ?? WHALE_GIRL_CELLS.rows, children: raster !== undefined ? raster : renderWhaleGirlLetterGrid(input) }));
+-}
++const whaleSprite = createSpriteSkin({
++    skinId: 'whaleGirl', skinTitle: '鲸娘', kitLoader: loadWhaleGirlKit,
++    imageDirs: ['../../../../assets/whaleGirl/img', '../../../../../assets/whaleGirl/img'],
++    fallback: DeepySkin, keyMap: { 'idle-spout': 'smile-hearts', happy: 'thumbs-up' }, moodCelebrate: 'thumbs-up',
++    selectFrame: frameAt,
++});
++export const { whaleGirlImageBoxColumns, WHALE_GIRL_SEMANTIC_ANIMATION, whaleGirlAnimationKey, resolveWhaleGirlAnimationKey, WhaleGirlSkin, loadWhaleGirlImageKit, whaleGirlImageFrameIndexAt, subscribeDecodedImageCache, WHALE_GIRL_PREHEAT_KEYS, whaleGirlDecodedAnimationKeys, decodedImageAnimationOrderForTests, injectDecodedAnimationForTests, whaleGirlDecodeRequestCountForTests, injectFailedAnimationForTests, resetWhaleGirlImageCacheForTests, useDecodedWhaleGirlFrames, useHeldCommittedImage } = whaleSprite;
+ const WHALE_CELLS = Object.freeze({ columns: 40, rows: 13 });
+ /** 现有像素鲸鱼：直接消费 nativeWhalePose（与开屏 splash 同一规划器、
+  *  同一帧表、同一 LAYERED_CACHE）。 */
+@@ -606,7 +71,16 @@ export const WhaleSkin = {
+         return _jsx(WhaleArt, { pose: pose.nativeWhalePose, width: WHALE_CELLS.columns });
+     },
+ };
++const geminiSprite = createSpriteSkin({
++    skinId: 'gemini', skinTitle: 'Gemini', kitLoader: loadGeminiKit,
++    imageDirs: ['../../../../../assets/gemini/img'],
++    fallback: DeepySkin, keyMap: {}, moodCelebrate: 'happy',
++    selectFrame: geminiSelectFrame, pixelArt: true, currentLetterFallback: true,
++});
++export const GeminiSkin = geminiSprite.WhaleGirlSkin;
++export const loadGeminiImageKit = geminiSprite.loadWhaleGirlImageKit;
+ const skins = new Map([
++    ['gemini', GeminiSkin],
+     [DeepySkin.id, DeepySkin],
+     [WhaleGirlSkin.id, WhaleGirlSkin],
+     [WhaleSkin.id, WhaleSkin],
+diff --git a/lib/types/components/sidePanel/companion/spriteSkin.js b/lib/types/components/sidePanel/companion/spriteSkin.js
+new file mode 100644
+index 0000000..593c1b0
+--- /dev/null
++++ b/lib/types/components/sidePanel/companion/spriteSkin.js
+@@ -0,0 +1,559 @@
++import { jsx as _jsx } from "react/jsx-runtime";
++import React from 'react';
++import { existsSync, readFileSync } from 'node:fs';
++import { fileURLToPath } from 'node:url';
++import { join } from 'node:path';
++import { Box, Text, Image, useTerminalImages, useTerminalImageProtocol, useTerminalImageCellSize } from '../../../ui.js';
++import { WhaleArt, renderSpriteRows, renderCellRows } from '../../Whale.js';
++import { loadSharp } from '../../../dsh-adapter/sharp.js';
++import { DEEPY_CELLS, DEEPY_MOOD_ANIMATION, DEEPY_SEMANTIC_ANIMATION, frameAt, loadDeepyKit, loadWhaleGirlKit, renderedDeepyAnimation, } from './deepy.js';
++export function createSpriteSkin({skinId, skinTitle, kitLoader: loadWhaleGirlKit, imageDirs, fallback: DeepySkin, keyMap, moodCelebrate, selectFrame = frameAt, pixelArt = false, currentLetterFallback = false}) {
++const WHALE_GIRL_CELLS = Object.freeze({ columns: 31, rows: 15 });
++/** 图像轨单元格盒列数：15 行预算 × 像元比 × 帧宽高比，钳在 cells.columns
++ * （超出时调用方按 contain 收行）。导出供回归锁「cells 常量 == 常见像元比
++ * 下的实际图宽」（空气墙契约：盒宽=图宽）。 */
++function whaleGirlImageBoxColumns(cell, frameRatio) {
++    const cellRatio = cell.height / cell.width;
++    return Math.max(1, Math.min(WHALE_GIRL_CELLS.columns, Math.round(cellRatio * WHALE_GIRL_CELLS.rows * frameRatio)));
++}
++/** 鲸娘心情表：deepy 表同名直通，只有 celebrate 换成鲸娘独有的
++ *  thumbs-up（happy/庆祝，success 通知反应同源）。 */
++const WHALE_GIRL_MOOD_ANIMATION = {
++    ...DEEPY_MOOD_ANIMATION,
++    celebrate: moodCelebrate,
++};
++/** 鲸娘语义表：deepy 的语义/上下文/互动/通知反应表 key 同名直通，仅
++ *  notice（悬停本体）→ smile-hearts、happy（庆祝）→ thumbs-up 两处覆盖。
++ *  回归用它做全语义覆盖检查；运行时 CompanionPanel 把裁决出的
++ *  animationSemantic 交给每个皮肤的 render（WhaleGirlSkin.semanticMap
++ *  即本表），互动/通知反应因此同样能到非 deepy 皮肤。 */
++const WHALE_GIRL_SEMANTIC_ANIMATION = {
++    ...DEEPY_SEMANTIC_ANIMATION,
++    notice: 'smile-hearts',
++    happy: 'thumbs-up',
++};
++/** pose → 鲸娘动画键（纯函数，回归直接测）：亲昵互动（爱心 pass，
++ *  CompanionPanel 在点击宠物 / Enter 戳一戳时 arm）优先于心情。 */
++function whaleGirlAnimationKey(mood, heart) {
++    if (heart > 0)
++        return 'smile-hearts';
++    return WHALE_GIRL_MOOD_ANIMATION[mood] ?? 'idle';
++}
++/** 鲸娘（用户提供的表情包，assets/whaleGirl/frames.json）：渲染路径照
++ *  DeepySkin（kit → 动画 → frameAt 选帧 → 半块行）。动画键优先级：
++ *  animationSemantic（互动/通知反应层，经 semanticMap 落点）> 爱心 pass
++ *  > 心情层（whaleGirlAnimationKey 原契约不变）；缺 kit / 缺帧回退
++ *  DeepySkin.render（再缺则由它落到 WhaleSkin）。 */
++/** 鲸娘对 deepy 规范键的落点：只声明两处覆盖（悬停碰本体 deepy 会喷水，
++ *  鲸娘换成 smile-hearts；庆祝 happy → 独有 thumbs-up），其余 18 键与
++  deepy 同名直通（鲸娘 kit 键集同源）。semantic 空间的完整覆盖表见
++  WHALE_GIRL_SEMANTIC_ANIMATION（回归用）。 */
++const WHALE_GIRL_KEY_ANIMATION = keyMap;
++/** 鲸娘动画键裁决（字母格与图像两条路径共用）：semanticMap 映射 >
++ *  爱心 pass > 心情层，与 whaleGirlAnimationKey 的优先级一致。每个候选
++ *  都要过 hasKey（在素材包里、没解码失败过），不过就沿链往下：semantic
++ *  → heart → mood → idle；全部不可用返回 undefined，由调用方退字母格
++ *  或保持上一帧。导出供回归直接测这条链。 */
++function resolveWhaleGirlAnimationKey(pose, animationSemantic, hasKey) {
++    if (animationSemantic !== undefined) {
++        const semanticKey = WHALE_GIRL_KEY_ANIMATION[animationSemantic] ?? animationSemantic;
++        if (hasKey(semanticKey))
++            return semanticKey;
++    }
++    if (pose.heart > 0 && hasKey('smile-hearts'))
++        return 'smile-hearts';
++    const moodKey = WHALE_GIRL_MOOD_ANIMATION[pose.mood] ?? 'idle';
++    if (hasKey(moodKey))
++        return moodKey;
++    const idleKey = WHALE_GIRL_MOOD_ANIMATION.idle;
++    if (hasKey(idleKey))
++        return idleKey;
++    return undefined;
++}
++/** 字母轨开窗（2026-10 空气墙修复配套）：42 格帧串的全部美术落在
++ * [5,35] 共 31 列（实测 267 帧，两侧是构建 contain 的透明衬垫 '.'）——
++ * 与图像轨 31 列盒同宽。开窗后字母轨也装进 cells.columns，盒贴边即
++ * （最宽姿势的）美术贴边；各姿势自身更窄的边距是美术固有，同 deepy。
++ * 回归锁「全部帧内容 ⊆ [5, 5+31)」防素材更新后悄悄越窗被截。 */
++const WHALE_GIRL_LETTER_WINDOW_START = 5;
++const whaleGirlWindowCache = new Map();
++function renderedWhaleGirlWindowRows(kit, key, imageBox) {
++    const animation = kit.byKey[key];
++    if (animation === undefined)
++        return undefined;
++    const cacheKey = kit.id + ':window:' + key + (imageBox === undefined ? '' : `:${imageBox.columns}x${imageBox.rows}`);
++    let rendered = whaleGirlWindowCache.get(cacheKey);
++    if (rendered === undefined) {
++        rendered = Object.freeze(animation.frames.map(frame => {
++            if (imageBox === undefined)
++                return renderSpriteRows(frame.rows.map(row => row.slice(WHALE_GIRL_LETTER_WINDOW_START, WHALE_GIRL_LETTER_WINDOW_START + WHALE_GIRL_CELLS.columns)), kit.palette);
++            // 解码前/失败时整幅字母格 contain 进同一个槽，不裁掉头脚，也不换画跳高。
++            const pixelRows = imageBox.rows * 2;
++            const scale = Math.min(imageBox.columns / WHALE_GIRL_CELLS.columns, pixelRows / kit.rows);
++            const width = Math.max(1, Math.floor(WHALE_GIRL_CELLS.columns * scale));
++            const height = Math.max(1, Math.floor(kit.rows * scale));
++            const left = Math.floor((imageBox.columns - width) / 2);
++            const top = Math.floor((pixelRows - height) / 2);
++            return renderCellRows(imageBox.columns, pixelRows, (x, y) => {
++                if (x < left || x >= left + width || y < top || y >= top + height)
++                    return undefined;
++                const sx = Math.min(WHALE_GIRL_CELLS.columns - 1, Math.floor((x - left) * WHALE_GIRL_CELLS.columns / width));
++                const sy = Math.min(kit.rows - 1, Math.floor((y - top) * kit.rows / height));
++                return kit.palette[frame.rows[sy]?.[sx + WHALE_GIRL_LETTER_WINDOW_START] ?? '.'];
++            });
++        }));
++        whaleGirlWindowCache.set(cacheKey, rendered);
++    }
++    return rendered;
++}
++/** 鲸娘字母格渲染（31 列开窗半块路径，供两条渲染路径复用）：
++ *  缺 kit / 缺预渲染 → DeepySkin.render（再缺由它落到 WhaleSkin）。 */
++function renderWhaleGirlLetterGrid(input) {
++    const { pose, moodSince, now, animationSemantic } = input;
++    const kit = loadWhaleGirlKit();
++    if (kit === undefined)
++        return DeepySkin.render({ ...input, width: WHALE_GIRL_CELLS.columns });
++    // 字母轨只要求 kit 里有这个动画；一个都没有时退 DeepySkin，与缺帧
++    // 回退同一出口。
++    const animationKey = resolveWhaleGirlAnimationKey(pose, animationSemantic, key => kit.byKey[key] !== undefined);
++    if (animationKey === undefined)
++        return DeepySkin.render({ ...input, width: WHALE_GIRL_CELLS.columns });
++    const rendered = renderedWhaleGirlWindowRows(kit, animationKey, input.imageBox);
++    const animation = kit.byKey[animationKey];
++    if (rendered === undefined || animation === undefined) {
++        return DeepySkin.render({ ...input, width: WHALE_GIRL_CELLS.columns });
++    }
++    const frameIndex = selectFrame(animation, now - moodSince);
++    const rows = rendered[frameIndex] ?? rendered[0] ?? [];
++    return (_jsx(Box, { flexDirection: "column", flexShrink: 0, width: input.imageBox?.columns ?? WHALE_GIRL_CELLS.columns, children: rows.map((row, index) => (_jsx(Text, { wrap: "truncate-end", children: row }, index))) }));
++}
++const WhaleGirlSkin = {
++    id: skinId,
++    title: skinTitle,
++    cells: WHALE_GIRL_CELLS,
++    /** optional：有终端图像协议（kitty/sixel）时用原生像素帧，无协议退
++     *  字母格（renderWhaleGirlLetterGrid，老路径原样保留）。 */
++    graphics: 'optional',
++    semanticMap: WHALE_GIRL_KEY_ANIMATION,
++    render(input) {
++        // kit 缺失的回退必须发生在 render() 本体（同步），老回归契约如此。
++        if (loadWhaleGirlKit() === undefined)
++            return DeepySkin.render({ ...input, width: WHALE_GIRL_CELLS.columns });
++        // render 是普通函数，hooks 落在真正的组件里（无协议环境 mount 后
++        // 立即退回字母格，行为与旧版逐字节一致）。
++        return _jsx(WhaleGirlImageSkin, { ...input });
++    },
++};
++/** 与 deepy.ts 同一套层级教训：源码层 4 层 + 编译层（lib/types）5 层。 */
++const WHALE_GIRL_IMG_DIR_CANDIDATES = imageDirs;
++let whaleGirlImageKitCache;
++/** 校验即拒绝（同 loadSpriteKit 契约）：timings.json 形状不对 → 整份
++ *  视为不可用，图像路径整体退字母格，不渲染半成品。 */
++function parseWhaleGirlImageKit(raw, dir) {
++    if (raw === null || typeof raw !== 'object' || Array.isArray(raw))
++        return undefined;
++    const byKey = {};
++    for (const [key, value] of Object.entries(raw)) {
++        if (!Array.isArray(value) || value.length === 0)
++            return undefined;
++        const frames = [];
++        for (const entry of value) {
++            if (typeof entry?.dur !== 'number' || !(entry.dur > 0))
++                return undefined;
++            if (typeof entry.file !== 'string' || !/^[0-9]{2}\.png$/.test(entry.file))
++                return undefined;
++            frames.push({ dur: entry.dur, file: entry.file });
++        }
++        byKey[key] = { key, frames, totalMs: frames.reduce((sum, frame) => sum + frame.dur, 0) };
++    }
++    return { dir, byKey };
++}
++/** 惰性加载 + 缓存图像 timings；缺失/校验失败返回 undefined（退字母格）。 */
++function loadWhaleGirlImageKit() {
++    if (whaleGirlImageKitCache !== undefined)
++        return whaleGirlImageKitCache ?? undefined;
++    for (const candidate of WHALE_GIRL_IMG_DIR_CANDIDATES) {
++        try {
++            const dir = fileURLToPath(new URL(candidate, import.meta.url));
++            if (!existsSync(join(dir, 'timings.json')))
++                continue;
++            const kit = parseWhaleGirlImageKit(JSON.parse(readFileSync(join(dir, 'timings.json'), 'utf8')), dir);
++            if (kit !== undefined) {
++                const first = kit.byKey.idle?.frames[0];
++                let canvas;
++                if (first !== undefined) {
++                    try {
++                        const png = readFileSync(join(dir, 'idle', first.file));
++                        if (png.length >= 24 && png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
++                            && png.toString('ascii', 12, 16) === 'IHDR') {
++                            const width = png.readUInt32BE(16);
++                            const height = png.readUInt32BE(20);
++                            if (width > 0 && height > 0 && width <= 4096 && height <= 4096)
++                                canvas = { width, height };
++                        }
++                    }
++                    catch {
++                        // 缺失/坏帧仍走原来的异步解码失败与字母格回退。
++                    }
++                }
++                whaleGirlImageKitCache = { ...kit, ...(canvas === undefined ? {} : { canvas }) };
++                return whaleGirlImageKitCache;
++            }
++        }
++        catch {
++            // 下一个候选路径
++        }
++    }
++    whaleGirlImageKitCache = null;
++    return undefined;
++}
++/** elapsed 时刻应显示第几帧：dur 累加取模，与 deepy.frameAt 同语义
++ *  （确定性、可单测；回归里与 frameAt 逐 elapsed 比对）。 */
++function whaleGirlImageFrameIndexAt(animation, elapsedMs) {
++    return selectFrame(animation, elapsedMs);
++}
++/** 已解码动画的 LRU（Map 迭代序 = 最近使用序）；失败集合防止坏动画
++ *  每帧重试。字节上限防 267 帧全量常驻（全解约 92.6MB RGBA）。
++ *  提交后的使用经 touchDecodedAnimation 刷新迭代序；写入和驱逐会发布
++ *  revision，消费者订阅后能发现自己的键被挤出并重新解码。 */
++const decodedImageAnimations = new Map();
++const failedImageAnimations = new Set();
++let decodedImageBytes = 0;
++const DECODED_IMAGE_BYTES_CAP = 32 * 1024 * 1024;
++/** 缓存写入/驱逐的版本号。快照是原始 number，Object.is 比较稳定。
++ *  touch 只改迭代序、不发布：它在 commit 后运行，发布会让每次 commit
++ *  再触发一次渲染。 */
++let decodedImageCacheRevision = 0;
++const decodedImageCacheListeners = new Set();
++function publishDecodedImageCacheChange() {
++    decodedImageCacheRevision += 1;
++    for (const listener of [...decodedImageCacheListeners])
++        listener();
++}
++/** 订阅缓存写入/驱逐（uSES 的 subscribe 面；回归直接用它观测 revision）。 */
++function subscribeDecodedImageCache(listener) {
++    decodedImageCacheListeners.add(listener);
++    return () => { decodedImageCacheListeners.delete(listener); };
++}
++/** 把命中的键移到最近使用位。只改迭代序，不动键集和字节数，所以不
++ *  发布 revision。只在 commit 后的 effect 里调用；键不在缓存时 no-op。 */
++function touchDecodedAnimation(key) {
++    const frames = decodedImageAnimations.get(key);
++    if (frames === undefined)
++        return;
++    decodedImageAnimations.delete(key);
++    decodedImageAnimations.set(key, frames);
++}
++/** 解码一个动画的全部帧（顺序、确定性）；任一帧失败 → 整个动画 undefined。 */
++async function decodeWhaleGirlAnimation(dir, animation) {
++    try {
++        const sharp = await loadSharp();
++        if (sharp === undefined)
++            return undefined;
++        const frames = [];
++        for (const frame of animation.frames) {
++            const decoded = await sharp(readFileSync(join(dir, animation.key, frame.file)), { failOn: 'error' })
++                .ensureAlpha()
++                .raw()
++                .toBuffer({ resolveWithObject: true });
++            if (decoded.info.channels !== 4
++                || decoded.data.byteLength !== decoded.info.width * decoded.info.height * 4)
++                return undefined;
++            frames.push({
++                data: new Uint8Array(decoded.data.buffer, decoded.data.byteOffset, decoded.data.byteLength),
++                width: decoded.info.width,
++                height: decoded.info.height,
++            });
++        }
++        return frames;
++    }
++    catch {
++        return undefined;
++    }
++}
++function rememberDecodedAnimation(key, frames) {
++    const previous = decodedImageAnimations.get(key);
++    if (previous !== undefined) {
++        decodedImageAnimations.delete(key);
++        decodedImageBytes -= previous.reduce((sum, frame) => sum + frame.data.byteLength, 0);
++    }
++    decodedImageAnimations.set(key, frames);
++    decodedImageBytes += frames.reduce((sum, frame) => sum + frame.data.byteLength, 0);
++    while (decodedImageBytes > DECODED_IMAGE_BYTES_CAP && decodedImageAnimations.size > 1) {
++        const oldest = decodedImageAnimations.keys().next().value;
++        if (oldest === undefined)
++            break;
++        const evicted = decodedImageAnimations.get(oldest);
++        decodedImageAnimations.delete(oldest);
++        decodedImageBytes -= evicted?.reduce((sum, frame) => sum + frame.data.byteLength, 0) ?? 0;
++    }
++    // 插入、替换、驱逐都改变了消费者可见的内容：发布 revision，让键被
++    // 挤出的消费者重跑解码 effect。
++    publishDecodedImageCacheChange();
++}
++/** 预热键集：面板可见且动画时钟在走时，把常用互动键（idle + poke
++ *  左/右 + smile-hearts）提前异步解码进 LRU，换键时少等一次解码。
++ *  导出供回归检查。 */
++const WHALE_GIRL_PREHEAT_KEYS = [
++    WHALE_GIRL_MOOD_ANIMATION.idle,
++    'poke-left',
++    'poke-right',
++    'smile-hearts',
++];
++/** 在途解码登记（同键去重：活跃解码路径与预热共用一个 Promise）。 */
++const inflightImageDecodes = new Map();
++/** 解码发起次数，只在新建在途 Promise 时递增。回归用它检查失败键不
++ *  按 tick 重试、同键并发只解一次、驱逐后的恢复有界。 */
++let whaleGirlDecodeRequestCount = 0;
++/** 测试重置时递增：重置前发起、重置后才完成的解码不得写进新缓存。 */
++let decodeGeneration = 0;
++/** 解码一个动画并入库：成功进 LRU，失败进失败集（之后的裁决会跳过
++ *  这个键）；同键并发请求共用在途 Promise。永不 reject，也不直接触发
++ *  React 更新。 */
++function requestWhaleGirlAnimationFrames(kit, key) {
++    const inflight = inflightImageDecodes.get(key);
++    if (inflight !== undefined)
++        return inflight;
++    whaleGirlDecodeRequestCount += 1;
++    const generation = decodeGeneration;
++    const pending = decodeWhaleGirlAnimation(kit.dir, kit.byKey[key])
++        .then(frames => {
++        if (generation !== decodeGeneration)
++            return frames;
++        inflightImageDecodes.delete(key);
++        if (frames === undefined) {
++            failedImageAnimations.add(key);
++            if (currentLetterFallback) publishDecodedImageCacheChange();
++        }
++        else
++            rememberDecodedAnimation(key, frames);
++        return frames;
++    })
++        .catch(() => {
++        if (generation !== decodeGeneration)
++            return undefined;
++        inflightImageDecodes.delete(key);
++        failedImageAnimations.add(key);
++        if (currentLetterFallback) publishDecodedImageCacheChange();
++        return undefined;
++    });
++    inflightImageDecodes.set(key, pending);
++    return pending;
++}
++/** 预热一个键（幂等：缺键/已缓存/已失败跳过）；失败静默——与按需解码
++ *  同语义地进失败集，不闪不响。 */
++function preheatWhaleGirlAnimation(kit, key) {
++    if (kit.byKey[key] === undefined)
++        return;
++    if (decodedImageAnimations.has(key) || failedImageAnimations.has(key))
++        return;
++    void requestWhaleGirlAnimationFrames(kit, key);
++}
++/** 测试观测点：当前进程已解码了哪些动画（惰性解码断言用）。 */
++function whaleGirlDecodedAnimationKeys() {
++    return [...decodedImageAnimations.keys(), ...failedImageAnimations];
++}
++/** 测试接缝：LRU 迭代序（= 最近使用序）。 */
++function decodedImageAnimationOrderForTests() {
++    return [...decodedImageAnimations.keys()];
++}
++/** 测试接缝：注入假帧，制造 32MiB 驱逐压力（不触发真实解码）。 */
++function injectDecodedAnimationForTests(key, frames) {
++    rememberDecodedAnimation(key, frames);
++}
++/** 测试观测点：解码发起总次数。 */
++function whaleGirlDecodeRequestCountForTests() {
++    return whaleGirlDecodeRequestCount;
++}
++/** 测试接缝：登记解码失败键（模拟坏 PNG，不动真实资产）。 */
++function injectFailedAnimationForTests(key) {
++    failedImageAnimations.add(key);
++}
++/** 测试接缝：清图像层缓存（timings kit + 已解码动画 + 失败集合 + 字母开窗渲染）。 */
++function resetWhaleGirlImageCacheForTests() {
++    whaleGirlImageKitCache = undefined;
++    decodedImageAnimations.clear();
++    failedImageAnimations.clear();
++    decodedImageBytes = 0;
++    inflightImageDecodes.clear();
++    decodeGeneration += 1;
++    whaleGirlWindowCache.clear();
++    whaleGirlDecodeRequestCount = 0;
++    publishDecodedImageCacheChange();
++}
++/** 面板可见性门（visible=false 零工作契约）：PanelHost 对非 active 的
++ *  enabled 面板包 display:none 的 Box——沿 DOM 祖先链查它。初始 false，
++ *  布局期更新（不触发额外渲染循环），解码 effect 只在证明可见后开跑。 */
++function useBoxDisplayed() {
++    const elementRef = React.useRef(null);
++    const displayedRef = React.useRef(false);
++    const [displayed, setDisplayed] = React.useState(false);
++    const setElement = React.useCallback((element) => { elementRef.current = element; }, []);
++    React.useLayoutEffect(() => {
++        let hidden = false;
++        let node = elementRef.current?.parentNode;
++        while (node !== undefined && !hidden) {
++            if (node.style?.display === 'none')
++                hidden = true;
++            node = node.parentNode;
++        }
++        // 只在值真的变化时 setState。这个无 deps 的 layout effect 每次
++        // commit 都跑；即使更新器返回原值，enqueue 本身也会计入
++        // react-reconciler 的 nestedUpdateCount，遇上连续提交（如 /context
++        // 滚动）会攒到 50 并抛 #185。用 ref 记住上次的值，稳态不入队。
++        const next = !hidden;
++        if (displayedRef.current !== next) {
++            displayedRef.current = next;
++            setDisplayed(next);
++        }
++    });
++    return [setElement, displayed];
++}
++/** 鲸娘图像路径的帧缓存 hook：activeKey 为 undefined（面板不可见/无
++ *  动画）时不做任何事；命中缓存同步返回，未命中异步解码完成后返回。
++ *  缓存 revision 是解码 effect 的依赖：键没变但被预热或别的实例挤出
++ *  缓存时，effect 重跑并重新解码。每次 commit 后刷新当前键的 LRU 位置。
++ *  导出供回归在真渲染器下测试。 */
++function useDecodedWhaleGirlFrames(activeKey, kit) {
++    const [settled, setSettled] = React.useState(undefined);
++    // 只在缓存写入/驱逐时变化（解码完成或测试注入），稳态不触发渲染。
++    const cacheRevision = React.useSyncExternalStore(subscribeDecodedImageCache, () => decodedImageCacheRevision);
++    React.useEffect(() => {
++        if (activeKey === undefined || kit === undefined)
++            return;
++        if (!decodedImageAnimations.has(activeKey) && !failedImageAnimations.has(activeKey)) {
++            let live = true;
++            // 与预热共用在途解码；组件已换键或卸载时不 setSettled（预热先完成
++            // 的话，revision 通知触发的渲染会直接命中缓存）。
++            void requestWhaleGirlAnimationFrames(kit, activeKey).then(frames => {
++                if (live && frames !== undefined)
++                    setSettled({ key: activeKey, frames });
++            });
++            return () => { live = false; };
++        }
++        return;
++    }, [activeKey, kit, cacheRevision]);
++    // 每次 commit 刷新当前键的 LRU 位置；键不在缓存或为 undefined 时 no-op。
++    React.useLayoutEffect(() => {
++        if (activeKey !== undefined)
++            touchDecodedAnimation(activeKey);
++    });
++    const cached = activeKey !== undefined ? decodedImageAnimations.get(activeKey) : undefined;
++    if (cached !== undefined)
++        return cached;
++    return settled !== undefined && settled.key === activeKey ? settled.frames : undefined;
++}
++/** 协议裁决层：render() 只产出本组件，hooks 全部在这里落地。 */
++function WhaleGirlImageSkin(input) {
++    // 请求能力探测（无协议终端 probe 一次即回落，不再打扰）。
++    useTerminalImages(true);
++    const protocol = useTerminalImageProtocol();
++    if (protocol !== 'kitty' && protocol !== 'sixel')
++        return renderWhaleGirlLetterGrid(input);
++    return _jsx(WhaleGirlRasterSkin, { ...input });
++}
++/** 保持上一帧的 hook：render 把本次候选图像交进来，没有候选时返回上一
++ *  次已提交的图像。「上一帧」和「是否显示过」只在 commit 后的 layout
++ *  effect 里写，被放弃的 concurrent render 不会改动它们。保持期间返回
++ *  同一个元素引用，逐 tick 重渲染不会重画子树。返回 [要显示的节点,
++ *  是否显示过]；节点为 undefined 表示从未显示过（调用方画字母格）。
++ *  导出供回归在 ConcurrentRoot 下测试。 */
++function useHeldCommittedImage(candidate, discard = false) {
++    const everCommittedRef = React.useRef(false);
++    const heldCommittedRef = React.useRef(undefined);
++    React.useLayoutEffect(() => {
++        if (discard) {
++            heldCommittedRef.current = undefined;
++            everCommittedRef.current = false;
++            return;
++        }
++        if (candidate === undefined)
++            return;
++        heldCommittedRef.current = candidate;
++        everCommittedRef.current = true;
++    });
++    if (candidate !== undefined)
++        return [candidate, everCommittedRef.current];
++    if (discard || !everCommittedRef.current)
++        return [undefined, false];
++    return [heldCommittedRef.current, true];
++}
++/** 图像渲染层：timings 选帧 + 惰性解码 + 单元格盒（15 行预算、宽按
++ *  帧比例钳 31 列）。解码期间保持上一帧；字母格只在冷启动时出现；常用
++ *  互动键在可见后预热。保持和预热都只看已提交的 render。 */
++function WhaleGirlRasterSkin(input) {
++    const { pose, moodSince, now, animationSemantic } = input;
++    const cellSize = useTerminalImageCellSize();
++    const imageKit = loadWhaleGirlImageKit();
++    const [boxRef, displayed] = useBoxDisplayed();
++    // 解码失败过的键不再被选中（退到心情层的键），失败的互动不会让画面
++    // 一直停在上一帧。
++    const letters = currentLetterFallback ? loadWhaleGirlKit()?.byKey : undefined;
++    const letterKey = letters === undefined ? undefined
++        : resolveWhaleGirlAnimationKey(pose, animationSemantic, key => letters[key] !== undefined);
++    const rasterFrames = letterKey === undefined ? undefined : imageKit?.byKey[letterKey]?.frames;
++    const letterFrames = letterKey === undefined ? undefined : letters[letterKey].frames;
++    const animationKey = currentLetterFallback
++        ? (rasterFrames !== undefined && rasterFrames.length === letterFrames.length
++            && rasterFrames.every((frame, index) => frame.dur === letterFrames[index].dur) ? letterKey : undefined)
++        : imageKit !== undefined
++            ? resolveWhaleGirlAnimationKey(pose, animationSemantic, key => imageKit.byKey[key] !== undefined && !failedImageAnimations.has(key))
++            : undefined;
++    // visible=false 零工作：display:none 祖先链未排除前不解码、不订阅时钟。
++    const frames = useDecodedWhaleGirlFrames(displayed ? animationKey : undefined, imageKit);
++    const animation = animationKey !== undefined ? imageKit?.byKey[animationKey] : undefined;
++    // 预热：可见且动画时钟在走时，把常用互动键异步解码进 LRU（不挡首帧，
++    // 失败静默进失败集）。now 只在 commit 后的 effect 里与上次比较，被
++    // 放弃的 render 带来的 now 不算。时钟一直不动就是 active=false 的定格
++    // 态（SplashMascot 停在 idle 第 0 帧），不预热。
++    const lastNowRef = React.useRef(now);
++    React.useEffect(() => {
++        if (now === lastNowRef.current)
++            return;
++        lastNowRef.current = now;
++        if (!displayed || imageKit === undefined)
++            return;
++        for (const key of currentLetterFallback ? [...WHALE_GIRL_PREHEAT_KEYS, 'thinking', 'typing', 'happy'] : WHALE_GIRL_PREHEAT_KEYS)
++            preheatWhaleGirlAnimation(imageKit, key);
++    }, [now, displayed, imageKit]);
++    // 单元格盒：15 行预算 + 帧自身宽高比（source.width/height，与档位
++    // 无关）+ 真实像元；宽钳 31 列。8×16 像元下 288px 档
++    // （301×288）≈ 31 列，渲染层 fit 只降采样，显示恒 1:1 或更密。
++    // 外层盒恒定 31×15：ref 挂在它上面（可见性门要求任何分支都在树里），
++    // 字母格→图像切换时面板几何零跳动。
++    let image;
++    if (imageKit !== undefined && cellSize !== undefined && frames !== undefined && animation !== undefined) {
++        const frameIndex = whaleGirlImageFrameIndexAt(animation, now - moodSince);
++        const source = frames[frameIndex] ?? frames[0];
++        if (source !== undefined) {
++            const cellRatio = cellSize.height / cellSize.width;
++            const frameRatio = source.width / source.height;
++            // 盒宽=图宽（钳在 cells.columns 内；超宽像元比下 contain 收行不裁剪）。
++            const rawColumns = Math.max(1, Math.round(cellRatio * WHALE_GIRL_CELLS.rows * frameRatio));
++            const columns = input.imageBox?.columns ?? whaleGirlImageBoxColumns(cellSize, frameRatio);
++            const rows = input.imageBox?.rows ?? (rawColumns > columns
++                ? Math.max(1, Math.round(columns / (cellRatio * frameRatio)))
++                : WHALE_GIRL_CELLS.rows);
++            image = (_jsx(Image, { transparent: true, ...(currentLetterFallback ? { holdPrevious: true } : {}), ...(pixelArt ? { pixelArt: true, lineArt: true } : {}), source: source, width: columns, height: rows, alt: "", presentation: "transcript", children: currentLetterFallback ? renderWhaleGirlLetterGrid({ ...input, imageBox: { columns, rows } }) : _jsx(Text, { children: Array.from({ length: rows }, () => ' '.repeat(columns)).join('\n') }) }));
++        }
++    }
++    // 本次候选或上一帧；都没有（冷启动）时画字母格。切到还没解码的键时
++    // 保持上一帧，不闪回字母格。
++    const unavailable = currentLetterFallback && (animationKey === undefined || failedImageAnimations.has(animationKey) || cellSize === undefined);
++    const [visibleImage] = useHeldCommittedImage(image, unavailable);
++    let raster = visibleImage;
++    // 换键等待解码时保留旧像素，但 resize 后不能把旧的大 Image 盒塞进新小槽。
++    if (input.imageBox !== undefined && React.isValidElement(raster)
++        && (raster.props.width !== input.imageBox.columns || raster.props.height !== input.imageBox.rows)) {
++        const { columns, rows } = input.imageBox;
++        raster = React.cloneElement(raster, {
++            width: columns,
++            height: rows,
++            children: currentLetterFallback ? renderWhaleGirlLetterGrid({ ...input, imageBox: { columns, rows } }) : _jsx(Text, { children: Array.from({ length: rows }, () => ' '.repeat(columns)).join('\n') }),
++        });
++    }
++    return (_jsx(Box, { ref: boxRef, flexDirection: "column", flexShrink: 0, alignItems: "center", justifyContent: "center", width: input.imageBox?.columns ?? WHALE_GIRL_CELLS.columns, height: input.imageBox?.rows ?? WHALE_GIRL_CELLS.rows, children: raster !== undefined ? raster : renderWhaleGirlLetterGrid(input) }));
++}
++
++return { whaleGirlImageBoxColumns, WHALE_GIRL_SEMANTIC_ANIMATION, whaleGirlAnimationKey, resolveWhaleGirlAnimationKey, WhaleGirlSkin, loadWhaleGirlImageKit, whaleGirlImageFrameIndexAt, subscribeDecodedImageCache, WHALE_GIRL_PREHEAT_KEYS, whaleGirlDecodedAnimationKeys, decodedImageAnimationOrderForTests, injectDecodedAnimationForTests, whaleGirlDecodeRequestCountForTests, injectFailedAnimationForTests, resetWhaleGirlImageCacheForTests, useDecodedWhaleGirlFrames, useHeldCommittedImage };
++}
+diff --git a/lib/types/components/splashArtRows.d.ts b/lib/types/components/splashArtRows.d.ts
+index 6e400e5..c5d1692 100644
+--- a/lib/types/components/splashArtRows.d.ts
++++ b/lib/types/components/splashArtRows.d.ts
+@@ -13,6 +13,7 @@ export declare function resolveSplashArtForm(input: {
+     readonly brand: Brand | undefined;
+     readonly whaleGirl: boolean;
+     readonly mascotSkin: string | undefined;
++    readonly backendPetOverride?: boolean;
+ }): SplashArtForm;
+ export declare function splashArtRows(form: SplashArtForm, imageBox?: SplashImageBox): number;
+ /**
+diff --git a/lib/types/components/splashArtRows.js b/lib/types/components/splashArtRows.js
+index 75ebe9d..0c284ed 100644
+--- a/lib/types/components/splashArtRows.js
++++ b/lib/types/components/splashArtRows.js
+@@ -1,10 +1,13 @@
+ /** 启动页立绘槽的占行：鲸鱼自然高度、portrait 的 minimal 等高盒、吉祥物的侧栏默认盒。 */
++import { splashArtBrandOf } from '../branding.js';
+ export const WHALE_ART_ROWS = 13;
+ export const PORTRAIT_ART_ROWS = 11;
+ export const MASCOT_ART_ROWS = 15;
+ /** 与 LogoV2 的默认品牌及 mascot → portrait → whale 分支一致。 */
+ export function resolveSplashArtForm(input) {
+-    const brand = input.brand ?? 'deepseek';
++    if (input.backendPetOverride)
++        return input.mascotSkin === undefined ? 'whale' : 'mascot';
++    const brand = splashArtBrandOf(input.brand ?? 'deepseek');
+     if (brand === 'deepseek' && (input.mascotSkin === 'deepy' || input.mascotSkin === 'whaleGirl'))
+         return 'mascot';
+     if (input.whaleGirl || brand !== 'deepseek')
+diff --git a/lib/types/components/splashFonts.js b/lib/types/components/splashFonts.js
+index 78b5e4d..e527b72 100644
+--- a/lib/types/components/splashFonts.js
++++ b/lib/types/components/splashFonts.js
+@@ -2,6 +2,10 @@ import { BRAND_SPLASH_WORDS } from '../branding.js';
+ import { bigTextWidth, paintedWidth } from './bigfont.js';
+ /** 基准款：6 列、竖笔 2 格、横笔 1 像素（保留圆角）。 */
+ const BOLD_GLYPHS = {
++    // T04 original glyphs: ANTIGRAVITY.
++    T: ['▀▀██▀▀', '··██··', '··██··', '··██··', '··██··'],
++    G: ['·▄▀▀▄▄', '██····', '██·▀██', '██··██', '·▀▄▄▀·'],
++    V: ['██··██', '██··██', '██··██', '·████·', '··██··'],
+     D: ['██▀▀▄▄', '██··██', '██··██', '██··██', '██▄▄▀▀'],
+     E: ['██▀▀▀▀', '██····', '██▀▀▀·', '██····', '██▄▄▄▄'],
+     P: ['██▀▀▄▄', '██··██', '██▄▄▀▀', '██····', '██····'],
+@@ -30,6 +34,10 @@ const BOLD_GLYPHS = {
+ const BOLD_FALLBACK = ['▄▄▄▄▄▄', '██··██', '██··██', '██··██', '▀▀▀▀▀▀'];
+ /** 老的 5 列空心字（0.11.x 之前的开屏款）。 */
+ const CLASSIC_GLYPHS = {
++    // T04 original glyphs: ANTIGRAVITY.
++    T: ['▀▀█▀▀', '··█··', '··█··', '··█··', '··█··'],
++    G: ['·▄▀▀▄', '█····', '█·▀▀█', '█···█', '·▀▄▄▀'],
++    V: ['█···█', '█···█', '█···█', '·█·█·', '··█··'],
+     D: ['█▀▀▀▄', '█···█', '█···█', '█···█', '█▄▄▄▀'],
+     E: ['█▀▀▀▀', '█····', '█▀▀▀·', '█····', '█▄▄▄▄'],
+     P: ['█▀▀▀▄', '█···█', '█▄▄▄▀', '█····', '█····'],
+@@ -55,6 +63,10 @@ const CLASSIC_GLYPHS = {
+ const CLASSIC_FALLBACK = ['▄▄▄▄▄', '█···█', '█···█', '█···█', '▀▀▀▀▀'];
+ /** PR #1058（作者 zdjmrq）的实心横笔设计：横笔满格、竖笔 1 格。 */
+ const SLAB_GLYPHS = {
++    // T04 original glyphs: ANTIGRAVITY.
++    T: ['█████', '··█··', '··█··', '··█··', '··█··'],
++    G: ['·████', '█····', '█·███', '█···█', '·███·'],
++    V: ['█···█', '█···█', '█···█', '·█·█·', '··█··'],
+     D: ['████·', '█···█', '█···█', '█···█', '████·'],
+     E: ['█████', '█····', '████·', '█····', '█████'],
+     P: ['████·', '█···█', '████·', '█····', '█····'],
+@@ -87,6 +99,10 @@ const SLAB_FALLBACK = ['▄▄▄▄▄', '█···█', '█···█', '█·
+  * 会丢右杆收笔 `║`）。dsh / claude 两副词的字母全在内（含彩蛋 IMYW）。
+  */
+ const SHADOW_GLYPHS = {
++    // T04 original glyphs: ANTIGRAVITY.
++    T: ['████████╗·', '╚══██╔══╝·', '···██║····', '···██║····', '···╚═╝····'],
++    G: ['·██████╗··', '██╔════╝··', '██║·███╗··', '╚██████╔╝·', '·╚═════╝··'],
++    V: ['██╗···██╗·', '██║···██║·', '╚██╗·██╔╝·', '·╚████╔╝··', '··╚═══╝···'],
+     D: ['·██████╗··', '·██╔══██╗·', '·██║··██║·', '·██████╔╝·', '·╚═════╝··'],
+     E: ['·███████╗·', '·██╔════╝·', '·██╔══╝···', '·███████╗·', '·╚══════╝·'],
+     P: ['·██████╗··', '·██╔══██╗·', '·██╔═══╝··', '·██║······', '·╚═╝······'],
+diff --git a/lib/types/components/splashLayout.d.ts b/lib/types/components/splashLayout.d.ts
+index 201d93e..7931cd2 100644
+--- a/lib/types/components/splashLayout.d.ts
++++ b/lib/types/components/splashLayout.d.ts
+@@ -37,5 +37,7 @@ export interface SplashLayout {
+ export declare function resolveSplashLayout(columns: number, options: {
+     whale: boolean;
+     font: SplashFont;
++    /** Preserve plain title rather than the art-only intermediate step. */
++    preserveTitle?: boolean;
+ }): SplashLayout;
+ //# sourceMappingURL=splashLayout.d.ts.map
+\ No newline at end of file
+diff --git a/lib/types/components/splashLayout.js b/lib/types/components/splashLayout.js
+index 265c1d9..2877d2e 100644
+--- a/lib/types/components/splashLayout.js
++++ b/lib/types/components/splashLayout.js
+@@ -37,6 +37,6 @@ export function resolveSplashLayout(columns, options) {
+     const fitsTitle = columns >= titleWidth;
+     const showWhale = options.whale &&
+         columns >= WHALE_BOX_WIDTH &&
+-        (columns >= titleWidth + COLUMN_GAP + WHALE_BOX_WIDTH || !fitsTitle);
++        (columns >= titleWidth + COLUMN_GAP + WHALE_BOX_WIDTH || (!fitsTitle && !options.preserveTitle));
+     return { showWhale, showBigTitle: fitsTitle, showPlainTitle: !fitsTitle && !showWhale };
+ }
+diff --git a/lib/types/dsh-adapter/compat/sessionLog.js b/lib/types/dsh-adapter/compat/sessionLog.js
+index 96e10a7..57f57c3 100644
+--- a/lib/types/dsh-adapter/compat/sessionLog.js
++++ b/lib/types/dsh-adapter/compat/sessionLog.js
+@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
+ import { appendFileSync, closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, realpathSync, rmSync, } from 'node:fs';
+ import { dirname, join, sep } from 'node:path';
+ import { zstdCompressSync, zstdDecompressSync } from 'node:zlib';
+-import { homeDir } from '../../utils/paths.js';
++import { DATA_DIR, homeDir } from '../../utils/paths.js';
+ /**
+  * Legacy third-party session-event types the TUI vouches for as ephemeral
+  * UI frames — safe for the strict read path to accept and skip. Exported
+@@ -36,7 +36,7 @@ export function sessionsRoots() {
+         roots.push(override);
+     const dshHome = process.env.DSH_HOME;
+     roots.push(join(dshHome !== undefined && dshHome.trim().length > 0 ? dshHome : join(home, '.dsh'), 'sessions'));
+-    roots.push(join(home, '.dsh-tui', 'sessions'));
++    roots.push(join(DATA_DIR, 'sessions'));
+     return [...new Set(roots)];
+ }
+ /**
+diff --git a/lib/types/dsh-adapter/index.d.ts b/lib/types/dsh-adapter/index.d.ts
+index c7e6258..7a5391f 100644
+--- a/lib/types/dsh-adapter/index.d.ts
++++ b/lib/types/dsh-adapter/index.d.ts
+@@ -256,6 +256,8 @@ export interface Config {
+     /** Companion pet (settings `dsh-tui.companion.*`): which skin the panel
+      *  pet wears. */
+     companion?: {
++        /** Auto uses Gemini on Antigravity; inherit keeps shared skin and splash art. */
++        antigravitySkin?: string;
+         /** 'deepy' (default, the deepy whale kit) or 'whale' (the splash's
+          *  layered pixel whale). Unknown ids normalize to deepy. */
+         skin?: string;
+diff --git a/lib/types/dsh-adapter/index.js b/lib/types/dsh-adapter/index.js
+index 9d1deea..c62a9ec 100644
+--- a/lib/types/dsh-adapter/index.js
++++ b/lib/types/dsh-adapter/index.js
+@@ -140,6 +140,7 @@ export const Config = editableConfig(Schema.object({
+         panels: Schema.transform(Schema.string().default(ALL_SIDE_PANELS), value => normalizeSidePanelPanels(value)),
+     }).default({ splitEnabled: true, open: false, ratio: 0.68, panels: ALL_SIDE_PANELS }),
+     companion: Schema.object({
++        antigravitySkin: Schema.string().required(false),
+         skin: Schema.transform(Schema.string().default(DEFAULT_COMPANION_SKIN), value => normalizeCompanionSkin(value)),
+     }).default({ skin: DEFAULT_COMPANION_SKIN }),
+     // btw thread context: schema defaults + transforms (same shape as
+diff --git a/lib/types/dsh-adapter/plugin.js b/lib/types/dsh-adapter/plugin.js
+index 39e1caa..65ffa42 100644
+--- a/lib/types/dsh-adapter/plugin.js
++++ b/lib/types/dsh-adapter/plugin.js
+@@ -63,7 +63,7 @@ import { shouldOfferOnboarding } from '../onboardingPrefs.js';
+ import { resolveSessionCwd } from '../utils/workspaceRoot.js';
+ import { LAUNCH_PROMPT_SENT_ENV, beginRestartAttempt, blockedUpdateMessages, checkForTuiUpdate, describeHostStepReason, describeLauncherStepReason, deliverEngineSkipReport, idleReportMessages, installedTuiVersion, isBootDeadlockTarget, isStandaloneRuntime, isVersionNewer, logRestartEvent, resolveDshProfileName, resolveUpdatePlan, restartTui, updatePlanLayers, updatePlanState, updatePlanSuite, updateTuiAndRestart, writeHandoffNotice, writeLastRunRecord } from '../update.js';
+ import { getLang, isLang, resolveStartupLang, setLang, t, writeLangPref } from '../i18n.js';
+-import { applyBtwContextBudget, applyBtwContextTurns, applyCodeFrameStyle, applyCompanionSkin, applyImageBacking, applyMathImageBacking, applyMathImageScale, applyMathRendering, applyMermaidDiagrams, applyNerdFontIcons, applyPageMargin, applySidePanelOpen, applySidePanelPanels, applySidePanelRatio, applySidePanelSplitEnabled, ALL_SIDE_PANELS, BTW_CONTEXT_BUDGET_MAX, BTW_CONTEXT_BUDGET_MIN, BTW_CONTEXT_TURNS_MAX, BTW_CONTEXT_TURNS_MIN, DEFAULT_PAGE_MARGIN, DEFAULT_STATUS_BAR, isPageMarginMode, normalizeJobGroupFold, normalizePageMargin, normalizeScrollGutter, normalizeSidePanelPanels, normalizePluginFieldsOrder, normalizeStatusBar, normalizeToolBackground, parsePageMarginSpec, parsePluginFieldsOrder, parseSidePanelPanels, resolveMathRendering } from '../tuiDisplayPrefs.js';
++import { applyBtwContextBudget, applyBtwContextTurns, applyCodeFrameStyle, applyBackendCompanionSkin, applyImageBacking, applyMathImageBacking, applyMathImageScale, applyMathRendering, applyMermaidDiagrams, applyNerdFontIcons, applyPageMargin, applySidePanelOpen, applySidePanelPanels, applySidePanelRatio, applySidePanelSplitEnabled, ALL_SIDE_PANELS, BTW_CONTEXT_BUDGET_MAX, BTW_CONTEXT_BUDGET_MIN, BTW_CONTEXT_TURNS_MAX, BTW_CONTEXT_TURNS_MIN, DEFAULT_PAGE_MARGIN, DEFAULT_STATUS_BAR, isPageMarginMode, normalizeJobGroupFold, normalizePageMargin, normalizeScrollGutter, normalizeSidePanelPanels, normalizePluginFieldsOrder, normalizeStatusBar, normalizeToolBackground, parsePageMarginSpec, parsePluginFieldsOrder, parseSidePanelPanels, resolveMathRendering } from '../tuiDisplayPrefs.js';
+ import { draftComboConflicts, effectiveComboString, parseComboDraft, setKeymapOverrides, SHORTCUT_ACTIONS, } from '../utils/keymap.js';
+ import { attachHerdrIntegration } from '../herdr.js';
+ import { logMouseDebug } from '../utils/debug.js';
+@@ -1743,7 +1743,16 @@ export async function apply(ctx, runtimeConfig, configOwner = ctx, runtimeOption
+     // The stored value only: `*` (the default) lets the registry supply the
+     // plugin panels, so no registration-time merge is needed (issue #1662).
+     applySidePanelPanels(config.sidePanel?.panels);
+-    applyCompanionSkin(config.companion?.skin);
++    let companionPreferences, companionBackend;
++    const refreshCompanion = () => {
++        const backend = channel.backendCapabilities?.backendId;
++        if (backend === companionBackend) return;
++        companionBackend = backend;
++        applyBackendCompanionSkin(backend, companionPreferences, config.companion);
++    };
++    companionBackend = channel.backendCapabilities?.backendId;
++    applyBackendCompanionSkin(companionBackend, companionPreferences, config.companion);
++    ctx.effect(() => channel.subscribe(refreshCompanion));
+     applyBtwContextTurns(config.btw?.contextTurns);
+     applyBtwContextBudget(config.btw?.contextBudget);
+     applyMermaidDiagrams(config.mermaidDiagrams);
+@@ -1889,6 +1898,7 @@ export async function apply(ctx, runtimeConfig, configOwner = ctx, runtimeOption
+                 panels: Schema.string(),
+             }),
+             companion: Schema.object({
++                antigravitySkin: Schema.string().required(false),
+                 skin: Schema.string(),
+             }),
+             // btw thread-context budgets (settings `btw.*`): no schema defaults
+@@ -2048,7 +2058,8 @@ export async function apply(ctx, runtimeConfig, configOwner = ctx, runtimeOption
+             // The stored value only: registration never rewrites it, so every apply
+             // (boot or live, same CSV or a new one) is idempotent (issue #1662).
+             applySidePanelPanels(value.sidePanel?.panels ?? config.sidePanel?.panels);
+-            applyCompanionSkin(value.companion?.skin ?? config.companion?.skin);
++            companionPreferences = value.companion;
++            applyBackendCompanionSkin(channel.backendCapabilities?.backendId, companionPreferences, config.companion);
+             applyBtwContextTurns(value.btw?.contextTurns ?? config.btw?.contextTurns);
+             applyBtwContextBudget(value.btw?.contextBudget ?? config.btw?.contextBudget);
+         };
+@@ -2576,6 +2587,10 @@ export async function apply(ctx, runtimeConfig, configOwner = ctx, runtimeOption
+                 {
+                     ...settingField('companion.skin'),
+                 },
++                {
++                    ...settingField('companion.antigravitySkin'),
++                    format: value => String(value ?? config.companion?.antigravitySkin ?? 'auto'),
++                },
+                 {
+                     ...settingField('whale'),
+                 },
+@@ -3104,7 +3119,7 @@ export async function apply(ctx, runtimeConfig, configOwner = ctx, runtimeOption
+     const onboardingOnBoot = dshBoot && noResume && shouldOfferOnboarding();
+     // 品牌镜像初值（branding.ts）：首帧渲染前铺好，避免 Claude 后端先画一屏
+     // 蓝再变橙。Chat 里的 effect 会在品牌解析变化时跟进更新这个镜像。
+-    setActiveBrand(resolveBrand(config.brand, backendChoice));
++    setActiveBrand(resolveBrand(channel.brand, channel.backendCapabilities?.backendId));
+     const liveThemeHost = () => getHostThemes(ctx.get('tuiThemes'));
+     const buildChat = () => React.createElement(Chat, {
+         channel,
+@@ -3188,7 +3203,7 @@ export async function apply(ctx, runtimeConfig, configOwner = ctx, runtimeOption
+         // Only a `dsh --profile <name>` launch has a profile installation for
+         // `/update` to act on; source checkouts and `--config` overlays get the
+         // unavailable notice instead.
+-        onUpdate: profile === undefined ? undefined : () => {
++        onUpdate: (process.env.DSH_TUI_APPEARANCE_PINNED === '1' || profile === undefined) ? undefined : () => {
+             if (exited || updateRequested)
+                 return;
+             // Resolve the WHOLE set before tearing the TUI down (#1844): the TUI
+@@ -3366,7 +3381,8 @@ export async function apply(ctx, runtimeConfig, configOwner = ctx, runtimeOption
+     // Check in the background so registry latency never delays the first frame.
+     // A failed/offline check is intentionally silent; the manual `/update`
+     // command remains available regardless of network access.
+-    void checkForTuiUpdate().then((update) => {
++    const updateCheck = process.env.DSH_TUI_APPEARANCE_PINNED === '1' ? Promise.resolve(undefined) : checkForTuiUpdate();
++    void updateCheck.then((update) => {
+         if (update === undefined || exited || updateRequested)
+             return;
+         const key = update.isStandalone ? 'update-standalone-available' : 'update-available';
+diff --git a/lib/types/ink/components/Image.d.ts b/lib/types/ink/components/Image.d.ts
+index b8a851a..d8b4f82 100644
+--- a/lib/types/ink/components/Image.d.ts
++++ b/lib/types/ink/components/Image.d.ts
+@@ -34,6 +34,8 @@ export interface ImageProps {
+      * Photographs and sprites leave it unset.
+      */
+     readonly lineArt?: boolean;
++    readonly pixelArt?: boolean;
++    readonly holdPrevious?: boolean;
+     /** Same-size terminal-cell fallback rendered when graphics are unavailable. */
+     readonly children?: ReactNode;
+ }
+@@ -44,5 +46,5 @@ export interface ImageProps {
+  * Yoga leaf; the Ink host decides after layout whether to paint its fallback
+  * children or attach a terminal-graphics placement over the same cells.
+  */
+-export default function Image({ source, width, height, alt, copyText, presentation, transparent, lineArt, children, }: ImageProps): React.ReactNode;
++export default function Image({ source, width, height, alt, copyText, presentation, transparent, lineArt, pixelArt, holdPrevious, children, }: ImageProps): React.ReactNode;
+ //# sourceMappingURL=Image.d.ts.map
+\ No newline at end of file
+diff --git a/lib/types/ink/components/Image.js b/lib/types/ink/components/Image.js
+index f5b0cfd..d4e956c 100644
+--- a/lib/types/ink/components/Image.js
++++ b/lib/types/ink/components/Image.js
+@@ -8,11 +8,11 @@ import Text from './Text.js';
+  * Yoga leaf; the Ink host decides after layout whether to paint its fallback
+  * children or attach a terminal-graphics placement over the same cells.
+  */
+-export default function Image({ source, width, height, alt, copyText, presentation, transparent, lineArt, children, }) {
++export default function Image({ source, width, height, alt, copyText, presentation, transparent, lineArt, pixelArt, holdPrevious, children, }) {
+     const [columns, rows] = normalizeSize(width, height);
+     const image = isTerminalImageSource(source, presentation) ? source : undefined;
+     const alternative = cleanAlternative(alt);
+-    return (_jsx("ink-image", { imageData: image?.data, imageWidth: image?.width, imageHeight: image?.height, imageAlt: alternative, imagePresentation: presentation, imageCopyText: copyText, imageTransparent: transparent === true ? 'transparent' : undefined, imageLineArt: lineArt === true ? 'lineArt' : undefined, style: {
++    return (_jsx("ink-image", { imageData: image?.data, imageWidth: image?.width, imageHeight: image?.height, imageAlt: alternative, imagePresentation: presentation, imageCopyText: copyText, imageTransparent: transparent === true ? 'transparent' : undefined, imageLineArt: lineArt === true ? 'lineArt' : undefined, imagePixelArt: pixelArt === true ? 'pixelArt' : undefined, imageHoldPrevious: holdPrevious === true ? 'holdPrevious' : undefined, style: {
+             width: columns,
+             height: rows,
+             flexGrow: 0,
+diff --git a/lib/types/ink/kitty-graphics.js b/lib/types/ink/kitty-graphics.js
+index b3cc408..6d9a7d7 100644
+--- a/lib/types/ink/kitty-graphics.js
++++ b/lib/types/ink/kitty-graphics.js
+@@ -274,11 +274,12 @@ export class KittyGraphicsManager {
+             this.cellSize.height,
+             placement.presentation,
+             this.compress,
++            placement.pixelArt === true,
+         ].join(':');
+         const existing = this.images.get(key);
+         if (existing !== undefined)
+             return existing;
+-        const fitted = fitTerminalImageSource(placement.source, placement.columns, placement.rows, this.cellSize, placement.presentation);
++        const fitted = fitTerminalImageSource(placement.source, placement.columns, placement.rows, this.cellSize, placement.presentation, placement.pixelArt === true);
+         const image = {
+             imageId: this.allocateImageId(),
+             payload: prepareKittyRgba(fitted, this.compress),
+diff --git a/lib/types/ink/output.js b/lib/types/ink/output.js
+index 09d7f1c..d17a8d3 100644
+--- a/lib/types/ink/output.js
++++ b/lib/types/ink/output.js
+@@ -582,6 +582,7 @@ export default class Output {
+         const presentation = node.attributes.imagePresentation;
+         const transparent = node.attributes.imageTransparent === 'transparent';
+         const lineArt = node.attributes.imageLineArt === 'lineArt';
++        const pixelArt = node.attributes.imagePixelArt === 'pixelArt';
+         // Both protocols crop a partially visible content image to its visible
+         // cells (Sixel re-encodes the slice, Kitty places a source rectangle), so
+         // scrolling past a viewport edge never flips it to its text fallback.
+@@ -616,6 +617,8 @@ export default class Output {
+             ...(presentation === 'preview' || presentation === 'transcript' ? { presentation } : {}),
+             ...(transparent ? { transparent: true } : {}),
+             ...(lineArt ? { lineArt: true } : {}),
++            ...(pixelArt ? { pixelArt: true } : {}),
++            ...(node.attributes.imageHoldPrevious === 'holdPrevious' ? { holdPrevious: true } : {}),
+             ...(canCrop ? { clip: { x: visibleLeft, y: visibleTop, columns: visibleRight - visibleLeft, rows: visibleBottom - visibleTop } } : {}),
+             ...(background !== undefined ? { background } : {}),
+         };
+diff --git a/lib/types/ink/sixel-codec.d.ts b/lib/types/ink/sixel-codec.d.ts
+index bc0cc2b..4070384 100644
+--- a/lib/types/ink/sixel-codec.d.ts
++++ b/lib/types/ink/sixel-codec.d.ts
+@@ -42,6 +42,7 @@ export interface SixelEncodeRequest {
+      * strokes stay solid. Photographs and sprites keep the dithered mask.
+      */
+     readonly lineArt?: boolean;
++    readonly pixelArt?: boolean;
+     readonly presentation?: 'preview' | 'transcript';
+     readonly crop?: SixelCrop;
+ }
+diff --git a/lib/types/ink/sixel-codec.js b/lib/types/ink/sixel-codec.js
+index a0a3f07..a605c9d 100644
+--- a/lib/types/ink/sixel-codec.js
++++ b/lib/types/ink/sixel-codec.js
+@@ -84,6 +84,7 @@ async function prepareSixel(request) {
+         width,
+         height,
+         fit: highResolution ? 'fill' : 'contain',
++        ...(request.pixelArt === true ? { kernel: 'nearest' } : {}),
+         background: fill ?? { r: 0, g: 0, b: 0, alpha: 0 },
+     })
+         .toColourspace('srgb')
+diff --git a/lib/types/ink/sixel-graphics.js b/lib/types/ink/sixel-graphics.js
+index 9cd40ed..93fc851 100644
+--- a/lib/types/ink/sixel-graphics.js
++++ b/lib/types/ink/sixel-graphics.js
+@@ -84,8 +84,13 @@ export class SixelGraphicsManager {
+             this.cache.delete(variant.key);
+             this.cache.set(variant.key, raster);
+         }
++        const old = placement.holdPrevious === true ? this.displayed.get(placement.node) : undefined;
++        variant.holdBacking = old !== undefined && !this.dirty &&
++            (variant.ready || !this.cache.has(variant.key)) &&
++            old.x === variant.rect.x && old.y === variant.rect.y &&
++            old.columns === variant.rect.columns && old.rows === variant.rect.rows;
+         this.frame.set(placement.node, variant);
+-        return variant.ready;
++        return variant.ready || variant.holdBacking;
+     };
+     variant(placement) {
+         let id = this.ids.get(placement.source.data);
+@@ -128,12 +133,12 @@ export class SixelGraphicsManager {
+         // Undefined keeps the raster transparent (only ink pixels are painted); a
+         // colour flattens onto it, for images that sit on a painted surface.
+         const background = placement.background;
+-        const assetKey = `${id}:${placement.source.width}:${placement.source.height}:${width}:${height}:${placement.transparent === true ? 'transparent' : background ?? 'default'}${placement.lineArt === true ? ':lineart' : ''}`;
++        const assetKey = `${id}:${placement.source.width}:${placement.source.height}:${width}:${height}:${placement.transparent === true ? 'transparent' : background ?? 'default'}${placement.lineArt === true ? ':lineart' : ''}${placement.pixelArt === true ? ':pixelart' : ''}`;
+         const key = `${assetKey}:${left}:${top}:${cropWidth}:${cropHeight}`;
+         return {
+             assetKey, key, placement, ready: false,
+             rect: { x, y, columns: Math.ceil(cropWidth / this.cell.width), rows: Math.ceil(cropHeight / this.cell.height) },
+-            request: { source: placement.source, width, height, ...(background === undefined ? {} : { background }), ...(placement.transparent === true ? { transparent: true } : {}), ...(placement.lineArt === true ? { lineArt: true } : {}), presentation: placement.presentation,
++            request: { source: placement.source, width, height, ...(background === undefined ? {} : { background }), ...(placement.transparent === true ? { transparent: true } : {}), ...(placement.lineArt === true ? { lineArt: true } : {}), ...(placement.pixelArt === true ? { pixelArt: true } : {}), presentation: placement.presentation,
+                 crop: { left, top, width: cropWidth, height: cropHeight } },
+         };
+     }
+@@ -214,7 +219,9 @@ export class SixelGraphicsManager {
+             // frame — the black flash while scrolling and the vanishing image under
+             // a tooltip. Keep the pixels already on screen until a replacement can
+             // be drawn in the same write.
+-            if (!this.dirty && this.frame.has(node) && !dropped.has(node)) {
++            const replacement = this.frame.get(node);
++            if (!this.dirty && replacement !== undefined && !dropped.has(node) &&
++                (!replacement.placement.holdPrevious || replacement.holdBacking)) {
+                 const placement = actual?.get(node);
+                 const coveredRects = placement?.coveredRects;
+                 const coveredKey = coveredRects === undefined || coveredRects.length === 0
+diff --git a/lib/types/ink/terminal-image.d.ts b/lib/types/ink/terminal-image.d.ts
+index 03e29b4..d83b0c6 100644
+--- a/lib/types/ink/terminal-image.d.ts
++++ b/lib/types/ink/terminal-image.d.ts
+@@ -74,6 +74,8 @@ export interface TerminalImagePlacement {
+      * sprites keep the dithered mask.
+      */
+     readonly lineArt?: boolean;
++    readonly pixelArt?: boolean;
++    readonly holdPrevious?: boolean;
+     /** False while a protocol-specific raster is pending or unavailable. */
+     readonly graphicsReady?: boolean;
+     /** Later paint operations cover part of this raster's visible cells. */
+@@ -111,7 +113,7 @@ export declare function terminalImagePixelSize(columns: number, rows: number, ce
+  * terminals that do not upscale Kitty payloads need the box's own pixels to
+  * fill the reserved cells. Oversized boxes still obey the allocation budget.
+  */
+-export declare function fitTerminalImageSource(source: TerminalImageSource, columns: number, rows: number, cellSize?: TerminalCellSize, presentation?: TerminalImagePlacement['presentation']): TerminalImageSource;
++export declare function fitTerminalImageSource(source: TerminalImageSource, columns: number, rows: number, cellSize?: TerminalCellSize, presentation?: TerminalImagePlacement['presentation'], pixelArt?: boolean): TerminalImageSource;
+ /** Validate an untrusted decoded source without copying its pixel buffer. */
+ export declare function isTerminalImageSource(value: unknown, presentation?: TerminalImagePlacement['presentation']): value is TerminalImageSource;
+ /** Recover and validate a source stored as primitive Ink host attributes. */
+diff --git a/lib/types/ink/terminal-image.js b/lib/types/ink/terminal-image.js
+index 98ee9ec..c9e77d4 100644
+--- a/lib/types/ink/terminal-image.js
++++ b/lib/types/ink/terminal-image.js
+@@ -76,7 +76,7 @@ export function terminalImagePixelSize(columns, rows, cellSize = DEFAULT_TERMINA
+  * terminals that do not upscale Kitty payloads need the box's own pixels to
+  * fill the reserved cells. Oversized boxes still obey the allocation budget.
+  */
+-export function fitTerminalImageSource(source, columns, rows, cellSize = DEFAULT_TERMINAL_CELL_SIZE, presentation) {
++export function fitTerminalImageSource(source, columns, rows, cellSize = DEFAULT_TERMINAL_CELL_SIZE, presentation, pixelArt = false) {
+     const [canvasWidth, canvasHeight] = terminalImagePixelSize(columns, rows, cellSize, presentation);
+     const canvasScale = Math.min(canvasWidth / source.width, canvasHeight / source.height);
+     const fittedWidth = Math.max(1, Math.min(canvasWidth, Math.round(source.width * canvasScale)));
+@@ -89,7 +89,7 @@ export function fitTerminalImageSource(source, columns, rows, cellSize = DEFAULT
+     }
+     const content = fittedWidth === source.width && fittedHeight === source.height
+         ? source.data
+-        : resizeRgba(source, fittedWidth, fittedHeight);
++        : pixelArt ? resizeRgbaNearest(source, fittedWidth, fittedHeight) : resizeRgba(source, fittedWidth, fittedHeight);
+     if (canvasWidth === fittedWidth && canvasHeight === fittedHeight) {
+         return { data: content, width: fittedWidth, height: fittedHeight };
+     }
+@@ -198,3 +198,16 @@ export function terminalImageSourceFromAttributes(attributes) {
+     const presentation = attributes['imagePresentation'] === 'preview' ? 'preview' : undefined;
+     return isTerminalImageSource(source, presentation) ? source : undefined;
+ }
++
++function resizeRgbaNearest(source, width, height) {
++    const output = new Uint8Array(width * height * 4);
++    for (let y = 0; y < height; y++) {
++        const sy = Math.floor((y + 0.5) * source.height / height);
++        for (let x = 0; x < width; x++) {
++            const sx = Math.floor((x + 0.5) * source.width / width);
++            const from = (sy * source.width + sx) * 4;
++            output.set(source.data.subarray(from, from + 4), (y * width + x) * 4);
++        }
++    }
++    return output;
++}
+diff --git a/lib/types/screens/Launchpad.js b/lib/types/screens/Launchpad.js
+index 25e079f..275b913 100644
+--- a/lib/types/screens/Launchpad.js
++++ b/lib/types/screens/Launchpad.js
+@@ -7,6 +7,7 @@ import { SearchBox } from '../components/SearchBox.js';
+ import { OverlayAbove } from '../components/OverlayAbove.js';
+ import { CommandSuggestions } from '../components/CommandSuggestions.js';
+ import { LogoV2 } from '../components/LogoV2.js';
++import { splashArtBrandOf } from '../branding.js';
+ import { resolveLaunchpadLayout } from '../components/launchpadLayout.js';
+ import { kernelSubtitle } from '../components/kernelCatalog.js';
+ import { fitParamParts, PARAM_SEPARATOR } from '../components/launchpadParams.js';
+@@ -14,7 +15,7 @@ import { useTooltip } from '../components/Tooltip.js';
+ import { resolveSplashTitleFont, pickSplashFont, splashFontById } from '../components/splashFonts.js';
+ import { pickSplashEgg } from '../components/splashEggs.js';
+ import { resolveSplashArtForm, splashArtRows } from '../components/splashArtRows.js';
+-import { useSplashMascotSkin, useSplashMascotBox } from '../components/sidePanel/companion/SplashMascot.js';
++import { useSplashCompanion, useSplashMascotBox } from '../components/sidePanel/companion/SplashMascot.js';
+ import { t } from '../i18n.js';
+ import { isMinimalUiMode } from '../minimalUiMode.js';
+ import { stringWidth } from '../ink/stringWidth.js';
+@@ -471,7 +472,7 @@ onKernelPick, cwd, branch, tuiVersion, onFocusChange, onAction, onQueryChange, o
+     // ≤ 下限的短段也不减）；压到各自下限仍超 → 今天的尾部省段），组件不再自己写
+     // 累加循环——宽度记账、降级语义与 `…` 的形态都在 `components/launchpadParams.ts`，
+     // 纯函数层与屏幕层的回归在 `scripts/verify-launchpad.tsx` 的 Q / R 组。
+-    const paramBudget = Math.max(24, Math.min(columns - 4, 72)) - 2;
++    const paramBudget = Math.max(brand === 'antigravity' ? Math.min(24, columns) : 24, Math.min(columns - 4, 72)) - 2;
+     const fittedParams = fitParamParts(paramParts, paramBudget);
+     const hasParams = fittedParams.length > 0;
+     // 双角铭牌：像两枚低调的机械铭牌，把整块界面扎在终端底边上。
+@@ -494,18 +495,18 @@ onKernelPick, cwd, branch, tuiVersion, onFocusChange, onAction, onQueryChange, o
+     });
+     /** 内核区进不进焦点环：画得出来**且**接了回调（可点才需要键盘等价操作）。 */
+     const kernelCornerFocusable = kernelRows.length > 0 && onKernelPick !== undefined;
+-    const cardWidth = Math.max(24, Math.min(columns - 4, 72));
++    const cardWidth = Math.max(brand === 'antigravity' ? Math.min(24, columns) : 24, Math.min(columns - 4, 72));
+     // 当天字体与节日只在 mount 时选一次，并交给 Logo，避免预算与渲染各自读日期。
+     // 立绘槽的吉祥物皮肤（`companion.skin`）同理：这一层与 `LogoV2` 读同一个
+     // 源（同一份 `useSyncExternalStore` 订阅），预算与渲染不会各看各的。
+-    const mascotSkin = useSplashMascotSkin(companionSkin);
+-    const mascotBox = useSplashMascotBox(mascotSkin, (brand ?? 'deepseek') === 'deepseek' && (whale || whaleGirl));
++    const { mascotSkin, backendPetOverride } = useSplashCompanion(companionSkin);
++    const mascotBox = useSplashMascotBox(mascotSkin, (backendPetOverride || splashArtBrandOf(brand ?? 'deepseek') === 'deepseek') && (whale || whaleGirl));
+     const [dailyFont] = React.useState(() => pickSplashFont());
+     const [dailyEgg] = React.useState(() => egg === undefined ? pickSplashEgg() : egg);
+     const font = fontId === undefined ? dailyFont : splashFontById(fontId);
+     const titleFont = resolveSplashTitleFont(font, brand, dailyEgg);
+     // 预算与 LogoV2 共享形态、图片槽：紧凑图片已缩减占位时不能仍按侧栏的15行算。
+-    const splashArtForm = resolveSplashArtForm({ brand, whaleGirl, mascotSkin });
++    const splashArtForm = resolveSplashArtForm({ brand, whaleGirl, mascotSkin, backendPetOverride });
+     const artRows = splashArtRows(splashArtForm, mascotBox);
+     const layout = resolveLaunchpadLayout(columns, rows, {
+         params: hasParams,
+@@ -513,6 +514,9 @@ onKernelPick, cwd, branch, tuiVersion, onFocusChange, onAction, onQueryChange, o
+         whaleGirl,
+         font: titleFont,
+         artRows,
++        collapseTitle: brand === 'antigravity',
++        plainTitleRows: brand === 'antigravity' && columns < 19
++            ? Math.ceil(11 / Math.max(1, columns)) + Math.ceil(7 / Math.max(1, columns)) : 1,
+         // 右下角铭牌自身行数：第一行（目录 + TUI 版号）+ 一行一个内核（第八版）。
+         cornerRows: 1 + kernelRows.length,
+     });
+@@ -831,7 +835,7 @@ onKernelPick, cwd, branch, tuiVersion, onFocusChange, onAction, onQueryChange, o
+         onFocusChange(-1);
+         event.stopImmediatePropagation();
+     });
+-    return (_jsxs(Box, { flexDirection: "column", width: columns, height: rows, onClick: onBlankClick, children: [_jsxs(Box, { flexDirection: "column", flexGrow: 1, alignItems: "center", justifyContent: "center", children: [layout.showHero && (_jsx(LogoV2, { fontId: font.id, egg: dailyEgg, whale: layout.showWhale && whale, whaleIdle: whaleIdle, whaleGirl: layout.showWhale && whaleGirl, brand: brand, companionSkin: companionSkin, mascotBox: mascotBox, starred: starred, onStarClick: onStarClick, skipIntro: true, align: "center", chrome: "minimal", arrangement: "column" })), _jsxs(Box, { flexDirection: "column", width: cardWidth, marginTop: layout.heroGapRows, children: [_jsx(Box, { flexDirection: "column", borderStyle: "round", borderColor: inputFocused ? 'suggestion' : 'inactive', paddingX: 1, width: cardWidth, children: _jsx(SearchBox, { query: query, placeholder: t('launchpad-placeholder'), 
++    return (_jsxs(Box, { flexDirection: "column", width: columns, height: rows, onClick: onBlankClick, children: [_jsxs(Box, { flexDirection: "column", flexGrow: 1, alignItems: "center", justifyContent: "center", children: [layout.showHero && (_jsx(LogoV2, { fontId: font.id, egg: dailyEgg, whale: layout.showWhale && whale, whaleIdle: whaleIdle, whaleGirl: layout.showWhale && whaleGirl, brand: brand, companionSkin: companionSkin, mascotBox: mascotBox, plainTitle: brand === 'antigravity' && !layout.showBigTitle, starred: starred, onStarClick: onStarClick, skipIntro: true, align: "center", chrome: "minimal", arrangement: "column" })), _jsxs(Box, { flexDirection: "column", ...(brand === 'antigravity' ? { flexShrink: 0 } : {}), width: cardWidth, marginTop: layout.heroGapRows, children: [_jsx(Box, { flexDirection: "column", borderStyle: "round", borderColor: inputFocused ? 'suggestion' : 'inactive', paddingX: 1, width: cardWidth, children: _jsx(SearchBox, { query: query, placeholder: t('launchpad-placeholder'), 
+                                     // 第七版（用户原话「光标永远不消失 哪怕焦点没了也不消失」）：
+                                     // 只要这一屏在，输入光标**常在**——焦点挪到参数段/入口行只影响
+                                     // 外框提亮（inputFocused），不再当光标的开关。
+@@ -850,9 +854,9 @@ onKernelPick, cwd, branch, tuiVersion, onFocusChange, onAction, onQueryChange, o
+                                         } }) }) }))] }), hasParams && layout.showHints && hintsFit && layout.hintsGapRows > 0 && (_jsx(Box, { flexShrink: 0, height: 1 })), layout.showHints && hintsFit && (_jsx(Box, { flexShrink: 0, flexDirection: "row", gap: 2, alignSelf: "center", width: columns, justifyContent: "flex-end", paddingRight: Math.max(0, Math.floor((columns - cardWidth) / 2)), children: chips.map(({ index, label }) => (_jsx(ActionChip, { label: label, focused: focusIndex === index, onActivate: () => onAction(actions[index]), onHover: () => onFocusChange(index), onHoverLeave: () => {
+                                 if (focusIndex === index)
+                                     onFocusChange(-1);
+-                            } }, actions[index].id))) })), (layout.showTip || rowNotice !== undefined) && (_jsx(Box, { flexShrink: 0, alignSelf: "center", marginTop: layout.tipGapRows, ...(rowNotice === undefined && !firstRun
++                            } }, actions[index].id))) })), (layout.showTip || rowNotice !== undefined) && (_jsx(Box, { flexShrink: 0, alignSelf: "center", ...(brand === 'antigravity' ? { width: columns, justifyContent: 'center' } : {}), marginTop: layout.tipGapRows, ...(rowNotice === undefined && !firstRun
+                             ? { onClick: (event) => { event.stopImmediatePropagation(); rotateTip(); } }
+-                            : {}), children: rowNotice === undefined ? (_jsxs(_Fragment, { children: [_jsxs(Text, { color: "warning", children: ["\u25CF ", t('launchpad-tip-prefix')] }), _jsx(Text, { color: focusIndex === TIPS_FOCUS ? 'suggestion' : undefined, bold: focusIndex === TIPS_FOCUS, dimColor: focusIndex !== TIPS_FOCUS, children: firstRun ? t('launchpad-first-run') : t(TIP_KEYS[tipIndex]) })] })) : (_jsxs(Text, { color: rowNotice.color ?? 'warning', children: ["\u25CF ", rowNotice.text] })) }))] }), layout.showCorners && (_jsxs(Box, { flexShrink: 0, flexDirection: "column", children: [_jsxs(Box, { flexShrink: 0, flexDirection: "row", justifyContent: "space-between", height: 1, children: [cornerLeft !== '' && onOpenWorkspace !== undefined ? (_jsx(CornerChip, { label: cornerLeft, focused: focusIndex === CWD_CORNER_FOCUS, onActivate: onOpenWorkspace, onHover: () => onFocusChange(CWD_CORNER_FOCUS), onHoverLeave: () => {
++                            : {}), children: rowNotice === undefined ? (_jsxs(brand === 'antigravity' ? Text : _Fragment, { ...(brand === 'antigravity' ? { wrap: 'truncate-end' } : {}), children: [_jsxs(Text, { color: "warning", children: ["\u25CF ", t('launchpad-tip-prefix')] }), _jsx(Text, { color: focusIndex === TIPS_FOCUS ? 'suggestion' : undefined, bold: focusIndex === TIPS_FOCUS, dimColor: focusIndex !== TIPS_FOCUS, children: firstRun ? t('launchpad-first-run') : t(TIP_KEYS[tipIndex]) })] })) : (_jsxs(Text, { color: rowNotice.color ?? 'warning', ...(brand === 'antigravity' ? { wrap: 'truncate-end' } : {}), children: ["\u25CF ", rowNotice.text] })) }))] }), layout.showCorners && (_jsxs(Box, { flexShrink: 0, flexDirection: "column", children: [_jsxs(Box, { flexShrink: 0, flexDirection: "row", justifyContent: "space-between", height: 1, children: [cornerLeft !== '' && onOpenWorkspace !== undefined ? (_jsx(CornerChip, { label: cornerLeft, focused: focusIndex === CWD_CORNER_FOCUS, onActivate: onOpenWorkspace, onHover: () => onFocusChange(CWD_CORNER_FOCUS), onHoverLeave: () => {
+                                     if (focusIndex === CWD_CORNER_FOCUS)
+                                         onFocusChange(-1);
+                                 } })) : (_jsx(Text, { dimColor: true, wrap: "truncate-middle", children: cornerLeft })), _jsx(Text, { dimColor: true, wrap: "truncate-middle", children: tuiPart ?? '' })] }), kernelRows.length > 0 && (_jsx(KernelCorner, { rows: kernelRows, focused: focusIndex === KERNEL_CORNER_FOCUS, onActivate: onKernelPick, onHover: () => onFocusChange(KERNEL_CORNER_FOCUS), onHoverLeave: () => {
+diff --git a/lib/types/sessionMounts.js b/lib/types/sessionMounts.js
+index d1ee2e3..af40583 100644
+--- a/lib/types/sessionMounts.js
++++ b/lib/types/sessionMounts.js
+@@ -53,7 +53,9 @@
+ import { closeSync, mkdirSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync, writeSync, } from 'node:fs';
+ import { randomBytes } from 'node:crypto';
+ import { join } from 'node:path';
+-import { DATA_DIR } from './utils/paths.js';
++import { homeDir } from './utils/paths.js';
++// Both editions must see claims on the same native sessions.
++const SHARED_MOUNT_DIR = join(homeDir(), '.dsh-tui');
+ const MOUNTS_FILE = 'session-mounts.json';
+ const LOCK_FILE = 'session-mounts.lock';
+ /** Schema version of the persisted document. */
+@@ -145,7 +147,7 @@ function parseOwner(value) {
+  */
+ export function readMountLedger() {
+     try {
+-        const parsed = JSON.parse(readFileSync(join(DATA_DIR, MOUNTS_FILE), 'utf8'));
++        const parsed = JSON.parse(readFileSync(join(SHARED_MOUNT_DIR, MOUNTS_FILE), 'utf8'));
+         if (typeof parsed !== 'object' || parsed === null)
+             return [];
+         const document = parsed;
+@@ -173,7 +175,7 @@ export function readMountLedger() {
+  * `damaged`; a failure to read at all carries no verdict.
+  */
+ export function readMountLedgerStrict() {
+-    const path = join(DATA_DIR, MOUNTS_FILE);
++    const path = join(SHARED_MOUNT_DIR, MOUNTS_FILE);
+     let raw;
+     try {
+         raw = readFileSync(path, 'utf8');
+@@ -295,16 +297,16 @@ function lockIsReclaimable(lockPath) {
+ /** Take the short cross-process lock, or report why another writer kept it. */
+ function acquireLock() {
+     try {
+-        mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
++        mkdirSync(SHARED_MOUNT_DIR, { recursive: true, mode: 0o700 });
+     }
+     catch (error) {
+         return {
+             ok: false,
+             reason: 'unavailable',
+-            detail: `cannot create ${DATA_DIR}: ${error instanceof Error ? error.message : String(error)}`,
++            detail: `cannot create ${SHARED_MOUNT_DIR}: ${error instanceof Error ? error.message : String(error)}`,
+         };
+     }
+-    const lockPath = join(DATA_DIR, LOCK_FILE);
++    const lockPath = join(SHARED_MOUNT_DIR, LOCK_FILE);
+     for (let attempt = 0; attempt < 2; attempt++) {
+         let fd;
+         try {
+@@ -416,7 +418,7 @@ function releaseLock(lock) {
+  * @returns Whether the ledger was replaced, and why not when it was not.
+  */
+ function writeLedger(mine) {
+-    const target = join(DATA_DIR, MOUNTS_FILE);
++    const target = join(SHARED_MOUNT_DIR, MOUNTS_FILE);
+     // The timestamp is part of the name, not decoration: a crash can leave a
+     // temp file behind, and a reused pid would then collide with `<pid>.<seq>`
+     // and fail the `wx` create.
+@@ -431,7 +433,7 @@ function writeLedger(mine) {
+             : { ok: false, reason: 'unavailable', detail: existing.detail };
+     }
+     try {
+-        mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
++        mkdirSync(SHARED_MOUNT_DIR, { recursive: true, mode: 0o700 });
+         const records = existing.owners.filter(owner => !ownerIsSelf(owner) && pidAlive(owner.pid));
+         if (mine !== undefined)
+             records.push(mine);
+diff --git a/lib/types/settings/definitions.js b/lib/types/settings/definitions.js
+index d520749..92a7998 100644
+--- a/lib/types/settings/definitions.js
++++ b/lib/types/settings/definitions.js
+@@ -5,8 +5,8 @@ export const SETTING_DEFINITIONS = {
+         label: 'Brand look',
+         descriptions: { zh: '品牌外观' },
+         group: 'splash',
+-        hint: 'Brand look of the splash and theme. Follow backend (default) switches with the active kernel — Claude boots orange (CLAUDE CODE title, Claude girl), Codex boots lavender (CODEX title, "Build anything with Codex"); the other values pin one look. Applies immediately.',
+-        hintDescriptions: { zh: '开屏与主题的品牌外观。跟随后端（默认）随当前内核自动切——Claude 后端整套换橙（CLAUDE CODE 大标题、Claude 娘立绘），Codex 后端整套换薰衣草紫（CODEX 大标题、"Build anything with Codex" 标语）；选固定档则锁定一种外观。立即生效。' },
++        hint: 'Brand look of the splash and theme. Follow backend (default) switches with the active kernel — Claude boots orange (CLAUDE CODE title, Claude girl), Codex boots lavender (CODEX title, "Build anything with Codex"); Antigravity boots Gemini blue (ANTIGRAVITY HARNESS title, existing companion settings); the other values pin one look. Applies immediately.',
++        hintDescriptions: { zh: '开屏与主题的品牌外观。跟随后端（默认）随当前内核自动切——Claude 后端整套换橙（CLAUDE CODE 大标题、Claude 娘立绘），Codex 后端整套换薰衣草紫（CODEX 大标题、"Build anything with Codex" 标语）；Antigravity 切为 Gemini 星蓝（ANTIGRAVITY HARNESS 标题，角色沿用当前设置）；选固定档则锁定一种外观。立即生效。' },
+         kind: 'select',
+         options: BRAND_SETTING_OPTIONS,
+     },
+@@ -38,6 +38,62 @@ export const SETTING_DEFINITIONS = {
+             { value: 'full', label: 'Full box', descriptions: { zh: '全框（封闭）' } },
+         ],
+     },
++    'companion.antigravitySkin': {
++        "label": "Antigravity companion skin",
++        "descriptions": {
++            "zh": "Antigravity 宠物皮肤"
++        },
++        "group": "splash",
++        "hint": "Auto selects Gemini only when Antigravity is the active backend. Inherit keeps the original companion and splash art rules.",
++        "hintDescriptions": {
++            "zh": "实际后端是 Antigravity 时，自动选用 Gemini。继承档沿用原宠物设置与开屏艺术规则。"
++        },
++        "kind": "select",
++        "options": [
++            {
++                "value": "auto",
++                "label": "Auto (Gemini)",
++                "descriptions": {
++                    "zh": "自动（Gemini）"
++                }
++            },
++            {
++                "value": "inherit",
++                "label": "Inherit",
++                "descriptions": {
++                    "zh": "继承"
++                }
++            },
++            {
++                "value": "gemini",
++                "label": "Gemini",
++                "descriptions": {
++                    "zh": "Gemini"
++                }
++            },
++            {
++                "value": "deepy",
++                "label": "Deepy",
++                "descriptions": {
++                    "zh": "Deepy 小鲸鱼"
++                }
++            },
++            {
++                "value": "whaleGirl",
++                "label": "Whale girl",
++                "descriptions": {
++                    "zh": "鲸娘"
++                }
++            },
++            {
++                "value": "whale",
++                "label": "Whale",
++                "descriptions": {
++                    "zh": "像素鲸鱼"
++                }
++            }
++        ]
++    },
+     'companion.skin': {
+         label: 'Companion skin',
+         descriptions: { zh: '宠物皮肤' },
+diff --git a/lib/types/tuiDisplayPrefs.d.ts b/lib/types/tuiDisplayPrefs.d.ts
+index fbd9c47..db948ec 100644
+--- a/lib/types/tuiDisplayPrefs.d.ts
++++ b/lib/types/tuiDisplayPrefs.d.ts
+@@ -301,4 +301,13 @@ export declare function normalizeCompanionSkin(value: unknown): CompanionSkinSet
+ export declare const subscribeCompanionSkin: (listener: () => void) => () => void;
+ export declare const getCompanionSkin: () => string;
+ export declare const applyCompanionSkin: (value: unknown) => string;
++export interface EffectiveCompanion { readonly skin: string; readonly override: boolean; }
++export declare const getEffectiveCompanion: () => EffectiveCompanion;
++export declare const subscribeEffectiveCompanion: (listener: () => void) => () => void;
++export interface BackendCompanionPrefs { skin?: string; antigravitySkin?: string; }
++export declare const getCompanionSkinOverride: () => boolean;
++export declare const subscribeCompanionSkinOverride: (listener: () => void) => () => void;
++export declare function normalizeBackendCompanionSkin(value: unknown): string;
++export declare function resolveBackendCompanionSkin(backend: string | undefined, user?: BackendCompanionPrefs, base?: BackendCompanionPrefs): EffectiveCompanion;
++export declare function applyBackendCompanionSkin(backend: string | undefined, user?: BackendCompanionPrefs, base?: BackendCompanionPrefs): EffectiveCompanion;
+ //# sourceMappingURL=tuiDisplayPrefs.d.ts.map
+\ No newline at end of file
+diff --git a/lib/types/tuiDisplayPrefs.js b/lib/types/tuiDisplayPrefs.js
+index 38ef36e..5bfb8b5 100644
+--- a/lib/types/tuiDisplayPrefs.js
++++ b/lib/types/tuiDisplayPrefs.js
+@@ -1,3 +1,4 @@
++import { geminiSupportsSkin } from './components/sidePanel/companion/geminiPolicy.js';
+ /** Where a plugin footer field joins the status row, in the list order the
+  *  user's `statusBar.pluginFieldsOrder` groups map onto by index. Kept
+  *  structurally identical to `TuiStatusFieldSlot` in `dsh-adapter/status.ts`
+@@ -611,7 +612,40 @@ export function normalizeCompanionSkin(value) {
+         return value;
+     return DEFAULT_COMPANION_SKIN;
+ }
+-const companionSkinStore = createLiveSetting(DEFAULT_COMPANION_SKIN, normalizeCompanionSkin);
+-export const subscribeCompanionSkin = companionSkinStore.subscribe;
+-export const getCompanionSkin = companionSkinStore.get;
+-export const applyCompanionSkin = companionSkinStore.apply;
++const effectiveCompanion = createLiveSetting(
++    Object.freeze({ skin: DEFAULT_COMPANION_SKIN, override: false }),
++    value => {
++        const prev = effectiveCompanion.get();
++        return prev.skin === value.skin && prev.override === value.override ? prev : Object.freeze(value);
++    },
++);
++export const getEffectiveCompanion = effectiveCompanion.get;
++export const subscribeEffectiveCompanion = effectiveCompanion.subscribe;
++const subscribeCompanionField = key => listener => {
++    let last = effectiveCompanion.get()[key];
++    return effectiveCompanion.subscribe(() => {
++        const value = effectiveCompanion.get()[key];
++        if (last !== value) { last = value; listener(); }
++    });
++};
++export const subscribeCompanionSkin = subscribeCompanionField('skin');
++export const subscribeCompanionSkinOverride = subscribeCompanionField('override');
++export const getCompanionSkin = () => effectiveCompanion.get().skin;
++export const getCompanionSkinOverride = () => effectiveCompanion.get().override;
++export const applyCompanionSkin = value =>
++    effectiveCompanion.apply({ skin: normalizeCompanionSkin(value), override: false }).skin;
++export function normalizeBackendCompanionSkin(value) {
++    return typeof value === 'string' && COMPANION_SKIN_IDS.includes(value) ? value : 'inherit';
++}
++export function resolveBackendCompanionSkin(backend, user = {}, base = {}) {
++    const inherited = { skin: normalizeCompanionSkin(user.skin ?? base.skin), override: false };
++    if (backend !== 'antigravity') return inherited;
++    const value = user.antigravitySkin ?? base.antigravitySkin;
++    if (value === 'inherit') return inherited;
++    const preferred = normalizeBackendCompanionSkin(value);
++    const skin = preferred === 'inherit' ? 'gemini' : preferred;
++    return skin !== 'gemini' || geminiSupportsSkin() ? { skin, override: true } : inherited;
++}
++export function applyBackendCompanionSkin(backend, user, base) {
++    return effectiveCompanion.apply(resolveBackendCompanionSkin(backend, user, base));
++}
+diff --git a/lib/types/utils/paths.js b/lib/types/utils/paths.js
+index 15ae0fe..cff1882 100644
+--- a/lib/types/utils/paths.js
++++ b/lib/types/utils/paths.js
+@@ -16,7 +16,7 @@ export function homeDir() {
+     return homedir() || process.env.USERPROFILE || process.env.HOME || '';
+ }
+ /** Data directory all preferences/history live in (`~/.dsh-tui`). */
+-export const DATA_DIR = join(homeDir(), '.dsh-tui');
++export const DATA_DIR = process.env.DSH_TUI_APPEARANCE_DATA_DIR || join(homeDir(), '.dsh-tui');
+ /**
+  * Expand a leading literal `~/` or `~\` to the user's home directory.
+  *
